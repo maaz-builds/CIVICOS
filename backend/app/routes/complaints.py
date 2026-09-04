@@ -1,6 +1,7 @@
 """Complaint endpoints.
 
-- POST /complaints/analyze   upload a photo -> vision analysis (AI)
+- POST /complaints/analyze   photo -> LangGraph pipeline: vision analysis
+                             (AI) -> location -> routing
 - POST /complaints           create a complaint record (Supabase), optionally
                              with the original photo (Supabase Storage)
 - GET  /complaints           list recent complaints (newest first)
@@ -18,13 +19,11 @@ import tempfile
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.agents.location_agent import LocationAgent
-from app.agents.routing_agent import RoutingAgent
 from app.agents.tracking_agent import TrackingAgent
-from app.agents.vision_agent import VisionAgent
 from app.schemas.complaint_schema import ComplaintCreate
 from app.services.storage_service import StorageService
 from app.services.supabase_service import SupabaseService
+from app.workflows.complaint_workflow import get_complaint_workflow
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
@@ -32,9 +31,6 @@ router = APIRouter(prefix="/complaints", tags=["Complaints"])
 # far more vision tokens, which slows the model call dramatically.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
-vision = VisionAgent()
-location = LocationAgent()
-routing = RoutingAgent()
 tracking = TrackingAgent()
 db = SupabaseService()
 storage = StorageService(db)
@@ -74,10 +70,25 @@ async def analyze_civic_issue(
             tmp_path = buffer.name
             shutil.copyfileobj(file.file, buffer)
 
-        analysis = await vision.analyze(
-            tmp_path,
-            content_type=file.content_type or "image/jpeg",
+        # Run the LangGraph pipeline: vision -> location -> routing.
+        # Vision is required and raises on failure (mapped below); the
+        # location and routing nodes are best-effort and swallow their own
+        # errors inside the graph, exactly like the old inline code.
+        result = await get_complaint_workflow().ainvoke(
+            {
+                "image_path": tmp_path,
+                "content_type": file.content_type or "image/jpeg",
+                "lat": lat,
+                "lng": lng,
+                "mode": "analyze",
+            }
         )
+        analysis = result.get("vision")
+        location_data = result.get("location")
+        routing_data = result.get("routing")
+        errors = result.get("errors") or {}
+        if errors:
+            print(f"Workflow best-effort errors: {errors}")
     except Exception as exc:
         # AI providers fail for many reasons (missing key, quota, bad
         # model output) - surface a clean error instead of a traceback.
@@ -100,36 +111,6 @@ async def analyze_civic_issue(
                 os.unlink(tmp_path)
             except OSError:
                 pass
-
-    # 2b. LOCATION (best-effort): only when the caller supplied real coords.
-    #     A hiccup here must not fail the vision analysis - the photo was
-    #     already understood, and location can be added at save time later.
-    location_data = None
-    if lat is not None and lng is not None:
-        try:
-            location_data = await location.extract_location(
-                description=analysis.get("description", ""),
-                lat=lat,
-                lng=lng,
-            )
-        except Exception as exc:  # noqa: BLE001 - best-effort enrichment
-            print(f"Location agent failed: {exc}")
-            location_data = None
-
-    # 2c. ROUTING (best-effort): map the detected issue to a GHMC
-    #     department so it can be saved with the complaint. Same rule as
-    #     location - a hiccup here must not fail the analysis.
-    routing_data = None
-    try:
-        routing_data = await routing.route_to_department(
-            category=analysis.get("issue_type", ""),
-            ward=(location_data or {}).get("ward"),
-            severity=analysis.get("severity"),
-            description=analysis.get("description", ""),
-        )
-    except Exception as exc:  # noqa: BLE001 - best-effort enrichment
-        print(f"Routing agent failed: {exc}")
-        routing_data = None
 
     return {
         "success": True,
