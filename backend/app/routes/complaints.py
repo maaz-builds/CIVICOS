@@ -19,6 +19,7 @@ import tempfile
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.agents.location_agent import LocationAgent
+from app.agents.routing_agent import RoutingAgent
 from app.agents.tracking_agent import TrackingAgent
 from app.agents.vision_agent import VisionAgent
 from app.schemas.complaint_schema import ComplaintCreate
@@ -33,6 +34,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 vision = VisionAgent()
 location = LocationAgent()
+routing = RoutingAgent()
 tracking = TrackingAgent()
 db = SupabaseService()
 storage = StorageService(db)
@@ -79,6 +81,15 @@ async def analyze_civic_issue(
     except Exception as exc:
         # AI providers fail for many reasons (missing key, quota, bad
         # model output) - surface a clean error instead of a traceback.
+        # Heavy congestion gets a 503 with a human message.
+        if "capacity" in str(exc).lower() or "overloaded" in str(exc).lower():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The AI analysis service is currently at capacity. "
+                    "Please wait a minute and try again."
+                ),
+            ) from exc
         raise HTTPException(
             status_code=502,
             detail=f"AI analysis failed: {exc}",
@@ -105,7 +116,27 @@ async def analyze_civic_issue(
             print(f"Location agent failed: {exc}")
             location_data = None
 
-    return {"success": True, "analysis": analysis, "location": location_data}
+    # 2c. ROUTING (best-effort): map the detected issue to a GHMC
+    #     department so it can be saved with the complaint. Same rule as
+    #     location - a hiccup here must not fail the analysis.
+    routing_data = None
+    try:
+        routing_data = await routing.route_to_department(
+            category=analysis.get("issue_type", ""),
+            ward=(location_data or {}).get("ward"),
+            severity=analysis.get("severity"),
+            description=analysis.get("description", ""),
+        )
+    except Exception as exc:  # noqa: BLE001 - best-effort enrichment
+        print(f"Routing agent failed: {exc}")
+        routing_data = None
+
+    return {
+        "success": True,
+        "analysis": analysis,
+        "location": location_data,
+        "routing": routing_data,
+    }
 
 
 @router.post("", status_code=201)

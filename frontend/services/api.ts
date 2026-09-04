@@ -54,11 +54,20 @@ export interface LocationResult {
   infrastructure_type: string;
 }
 
+/** Routing enrichment produced by the Routing Agent (POST /complaints/analyze). */
+export interface RoutingResult {
+  department: string;
+  priority: string | null;
+  notes: string | null;
+  ai_used: boolean;
+}
+
 /** Full response of POST /complaints/analyze. */
 export interface AnalyzeResponse {
   success: boolean;
   analysis: AnalysisResult;
   location: LocationResult | null;
+  routing: RoutingResult | null;
 }
 
 /** Payload accepted by POST /complaints (see ComplaintCreate on the backend). */

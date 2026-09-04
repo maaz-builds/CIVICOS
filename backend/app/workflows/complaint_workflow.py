@@ -4,10 +4,13 @@ Drafted pipeline (not wired to an endpoint yet):
 
     vision -> location -> routing -> complaint -> tracking
 
-Vision, location, and tracking IDs are implemented. The routing and
-complaint agents still raise NotImplementedError, so the graph only
-becomes runnable once those two land. The node calls below match each
-agent's declared interface, so no further changes are needed then.
+All five agents are implemented: vision (Featherless Qwen2.5-VL),
+location (Nominatim + optional WARD_MODEL), routing (Featherless
+ROUTING_MODEL with a keyword-rules fallback), complaint (deterministic
+record assembler), and tracking (collision-safe CF- IDs). The graph
+compiles and can run end-to-end; it just isn't attached to an endpoint
+yet - the /complaints/analyze route currently runs the same steps
+inline without LangGraph.
 """
 
 from typing import TypedDict

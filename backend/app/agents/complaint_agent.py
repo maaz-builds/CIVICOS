@@ -1,23 +1,40 @@
-"""Complaint agent - assembles a validated complaint record (NOT implemented yet).
+"""Complaint agent - assembles a validated complaint record.
 
-Planned responsibilities (later milestone):
-    * Merge the outputs of the vision + location + routing agents into one
-      complaint record.
-    * Validate required fields before the record is saved.
-    * Keep the record shape stable (see app/schemas/complaint_schema.py).
+Deterministic glue: merges the vision + location + routing agent outputs
+into the ComplaintCreate shape (the single source of truth in
+app/schemas/complaint_schema.py) and validates it before save.
 
-No logic yet - this is the future interface.
+Deliberately NO AI here: building the record is joining known fields, and
+the save path must work even when every model is down. The "AI" of this
+pipeline lives upstream (vision) and in the routing decision.
 """
+
+from app.schemas.complaint_schema import ComplaintCreate
 
 
 class ComplaintAgent:
-    """Complaint builder. Interface only - implementation comes later."""
+    """Complaint builder: merge + validate agent outputs into a record."""
 
     async def build_complaint(self, raw_input: dict) -> dict:
         """Return a validated, ready-to-save complaint dict.
 
-        TODO(complaint milestone): combine agent outputs, validate, and return.
+        ``raw_input`` carries the upstream agent outputs, e.g.
+        {"vision": {...}, "location": {...}, "routing": {...}}.
+        Unknown keys are dropped; missing optional fields become None.
         """
-        raise NotImplementedError(
-            "ComplaintAgent.build_complaint is not implemented yet."
+        vision = raw_input.get("vision") or {}
+        location = raw_input.get("location") or {}
+        routing = raw_input.get("routing") or {}
+
+        complaint = ComplaintCreate(
+            issue_type=vision.get("issue_type") or "",
+            description=vision.get("description") or "",
+            confidence=vision.get("confidence"),
+            severity=vision.get("severity"),
+            ward=location.get("ward") or location.get("area_name"),
+            lat=location.get("lat"),
+            lng=location.get("lng"),
+            department=routing.get("department"),
+            routing_notes=routing.get("notes"),
         )
+        return complaint.model_dump()

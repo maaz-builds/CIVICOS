@@ -7,6 +7,7 @@ import {
   createComplaint,
   type AnalysisResult,
   type LocationResult,
+  type RoutingResult,
   type StoredComplaint,
 } from "@/services/api";
 
@@ -17,6 +18,7 @@ export default function ReportPage() {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [locationResult, setLocationResult] = useState<LocationResult | null>(null);
+  const [routingResult, setRoutingResult] = useState<RoutingResult | null>(null);
   const [saved, setSaved] = useState<StoredComplaint | null>(null);
   const [error, setError] = useState("");
 
@@ -55,6 +57,7 @@ export default function ReportPage() {
     setPreview(URL.createObjectURL(img));
     setResult(null);
     setLocationResult(null);
+    setRoutingResult(null);
     setWard("");
     setArea("");
     setSaved(null);
@@ -84,6 +87,7 @@ export default function ReportPage() {
         setWard(data.location.ward);
         setArea(data.location.area_name);
       }
+      setRoutingResult(data.routing);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Analysis timed out after 2.5 minutes. Try a smaller image.");
@@ -112,6 +116,8 @@ export default function ReportPage() {
           ward: ward.trim() || undefined,
           lat: coords?.lat,
           lng: coords?.lng,
+          department: routingResult?.department || undefined,
+          routing_notes: routingResult?.notes || undefined,
         },
         // Send the original photo too - the backend uploads it to Supabase
         // Storage and links it via image_url.
@@ -131,6 +137,7 @@ export default function ReportPage() {
     setPreview("");
     setResult(null);
     setLocationResult(null);
+    setRoutingResult(null);
     setWard("");
     setArea("");
     setCoords(null);
@@ -232,12 +239,27 @@ export default function ReportPage() {
                 <p className="text-slate-400">Severity</p>
                 <p className="text-xl font-bold">{result.severity}</p>
               </div>
-
-              <div>
-                <p className="text-slate-400">Description</p>
-                <p>{result.description}</p>
-              </div>
             </div>
+
+            <div>
+              <p className="text-slate-400">Description</p>
+              <p>{result.description}</p>
+            </div>
+
+            {/* Routing (from the Routing Agent) */}
+            {routingResult && (
+              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <p className="text-xs text-emerald-400">Assigned department</p>
+                <p className="mt-1 font-semibold">
+                  {routingResult.department}
+                </p>
+                {routingResult.notes ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {routingResult.notes}
+                  </p>
+                ) : null}
+              </div>
+            )}
 
             {/* Location (from the Location Agent, editable) */}
             <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950 p-4">

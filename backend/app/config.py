@@ -65,5 +65,14 @@ class Settings:
     #   WARD_MODEL=Qwen/Qwen2.5-7B-Instruct
     WARD_MODEL: str = os.getenv("WARD_MODEL", "")
 
+    # Chat model used by the Routing Agent to map an issue category to the
+    # responsible GHMC department. The default is ungated and fast; set it
+    # to any ungated Featherless instruct model. Routing falls back to
+    # built-in keyword rules when the model is busy/gated/unset.
+    ROUTING_MODEL: str = os.getenv(
+        "ROUTING_MODEL",
+        "Qwen/Qwen2.5-7B-Instruct",
+    )
+
 
 settings = Settings()

@@ -9,26 +9,46 @@ import asyncio
 import base64
 import time
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI
 
 from app.config import settings
 
 
-# Featherless' shared GPUs frequently answer with a transient "model is
-# busy" error; retry a few times with backoff before giving up.
-_MAX_ATTEMPTS = 3
-_BACKOFF_SECONDS = [2.0, 4.0]
+# Featherless' shared GPUs frequently answer with transient congestion
+# errors - "model is busy" (400), "temporarily at capacity" (503,
+# capacity_exhausted), "overloaded", rate limits, and network blips.
+# Retry those a few times with backoff before giving up.
+_MAX_ATTEMPTS = 4
+_BACKOFF_SECONDS = [2.0, 4.0, 8.0]
+
+# HTTP statuses that mean "try again later", not "your request is wrong".
+_TRANSIENT_STATUS_CODES = (429, 502, 503, 504)
+_TRANSIENT_MESSAGE_TOKENS = ("busy", "overloaded", "capacity", "rate limit", "try again")
 
 
-def _call_with_busy_retry(fn):
-    """Run fn, retrying while the model reports it is busy."""
+def _is_transient(exc: Exception) -> bool:
+    """True for errors that are worth a retry (congestion / blips).
+
+    Decides by exception type and HTTP status first, then falls back to
+    scanning the message, because providers word the same failure
+    differently over time ("busy", "capacity exhausted", "overloaded").
+    """
+    if isinstance(exc, APIConnectionError):
+        return True  # timeout or network blip
+    if isinstance(exc, APIStatusError) and exc.status_code in _TRANSIENT_STATUS_CODES:
+        return True
+    text = str(exc).lower()
+    return any(token in text for token in _TRANSIENT_MESSAGE_TOKENS)
+
+
+def _call_with_retry(fn):
+    """Run fn, retrying while the model reports transient congestion."""
     last_error = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
             return fn()
-        except Exception as exc:  # noqa: BLE001 - decide by message, not type
-            text = str(exc).lower()
-            if "busy" not in text and "overloaded" not in text:
+        except Exception as exc:  # noqa: BLE001 - decide via _is_transient
+            if not _is_transient(exc):
                 raise
             last_error = exc
             if attempt < _MAX_ATTEMPTS - 1:
@@ -71,7 +91,7 @@ class FeatherlessService:
         model: str = "Qwen/Qwen2.5-VL-72B-Instruct",
     ):
         def _call():
-            return _call_with_busy_retry(
+            return _call_with_retry(
                 lambda: self.client.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -97,7 +117,7 @@ class FeatherlessService:
             image_b64 = base64.b64encode(img.read()).decode()
 
         def _call():
-            return _call_with_busy_retry(
+            return _call_with_retry(
                 lambda: self.client.chat.completions.create(
                     model=self.VISION_MODEL,
                     temperature=0,
