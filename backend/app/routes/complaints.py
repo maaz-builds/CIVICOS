@@ -1,33 +1,54 @@
-from fastapi import APIRouter, UploadFile, File
+"""Complaint endpoints.
+
+POST /complaints/analyze runs the vision agent over an uploaded photo and
+returns structured analysis of the civic issue it shows.
+
+Uploaded images are written to the OS temp directory instead of a
+repo-local folder: locally that keeps the working tree clean, and on Vercel
+it is required, because the serverless filesystem is read-only except for
+the /tmp area.
+"""
+
 import os
 import shutil
-import uuid
+import tempfile
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.agents.vision_agent import VisionAgent
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 vision = VisionAgent()
 
 
 @router.post("/analyze")
 async def analyze_civic_issue(file: UploadFile = File(...)):
-    # Create unique filename
-    extension = file.filename.split(".")[-1]
-    filename = f"{uuid.uuid4()}.{extension}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    # Derive a safe extension from the upload name (default to .jpg).
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if not suffix.startswith("."):
+        suffix = ".jpg"
 
-    # Save uploaded image
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    tmp_path = None
+    try:
+        # Write the upload to a temporary file, then analyze it.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as buffer:
+            tmp_path = buffer.name
+            shutil.copyfileobj(file.file, buffer)
 
-    # AI Analysis
-    result = await vision.analyze(filepath)
+        analysis = await vision.analyze(tmp_path)
+    except Exception as exc:
+        # AI providers fail for many reasons (missing key, quota, bad
+        # model output) - surface a clean error instead of a traceback.
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI analysis failed: {exc}",
+        ) from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
-    return {
-        "success": True,
-        "analysis": result
-    }
+    return {"success": True, "analysis": analysis}

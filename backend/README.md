@@ -1,8 +1,9 @@
 # CivicFix Backend
 
-FastAPI service for CivicFix Hyderabad. Right now it exposes a health check
-plus placeholder routes; every AI / database module is empty scaffolding that
-will be implemented in later milestones.
+FastAPI service for CivicFix Hyderabad. It exposes a health check and an AI
+photo-analysis endpoint (`POST /complaints/analyze`) that uses the Featherless
+vision agent to identify civic issues. The location / routing / complaint /
+tracking agents and the Supabase database arrive in later milestones.
 
 ## Quickstart
 
@@ -21,11 +22,11 @@ uvicorn app.main:app --reload --port 8000
 
 ## Endpoints
 
-| Method | Path         | Description                                                  |
-| ------ | ------------ | ------------------------------------------------------------ |
-| GET    | /health      | Liveness check → `{"status": "ok", "service": "civicfix-backend"}` |
-| GET    | /complaints  | Placeholder → `[]` (complaints arrive with the database milestone) |
-| GET    | /docs        | Swagger UI for trying endpoints in the browser               |
+| Method | Path                | Description                                                          |
+| ------ | ------------------- | -------------------------------------------------------------------- |
+| GET    | /health             | Liveness check → `{"status": "ok", "service": "civicfix-backend"}`   |
+| POST   | /complaints/analyze | Upload a photo → JSON analysis of the civic issue (needs `FEATHERLESS_API_KEY`) |
+| GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
 
 ## Structure
 
@@ -36,21 +37,23 @@ backend/
 │   ├── config.py             # Central settings (reads .env automatically)
 │   ├── routes/               # One router module per resource
 │   │   ├── health.py         # GET /health
-│   │   └── complaints.py     # GET /complaints (placeholder)
-│   ├── agents/               # Future AI agents — stubs only, no logic yet
-│   │   ├── vision_agent.py   #   photo analysis (what is the issue?)
+│   │   └── complaints.py     # POST /complaints/analyze (vision analysis)
+│   ├── agents/               # AI agents — vision implemented, rest are stubs
+│   │   ├── vision_agent.py   #   photo analysis (what is the issue?) ✅
 │   │   ├── location_agent.py #   where is it? (coords / ward)
 │   │   ├── routing_agent.py  #   which department handles it?
 │   │   ├── complaint_agent.py#   assemble + validate a complaint record
 │   │   └── tracking_agent.py #   tracking IDs + status updates
-│   ├── services/             # Future integrations — stubs only
-│   │   ├── featherless_service.py  # Featherless AI calls
-│   │   ├── supabase_service.py     # Supabase database calls
-│   │   └── storage_service.py      # photo storage (Supabase Storage)
+│   ├── services/             # Integrations
+│   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)
+│   │   ├── supabase_service.py     # Supabase database (pending)
+│   │   └── storage_service.py      # photo storage (pending)
 │   ├── schemas/              # Future request/response Pydantic models
 │   │   └── complaint_schema.py
-│   └── workflows/            # Future LangGraph pipeline — stub only
+│   └── workflows/            # LangGraph pipeline — drafted, not wired yet
 │       └── complaint_workflow.py
+├── api/
+│   └── index.py              # Vercel entrypoint (mounts the app at /api/backend)
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -69,6 +72,11 @@ chosen so the app runs without any `.env` file:
 | ---------------------- | ----------------------------------------- | ------------------ |
 | CIVICFIX_CORS_ORIGINS  | http://localhost:3000,http://127.0.0.1:3000 | Allowed browser origins (CORS) |
 | CIVICFIX_SERVICE_NAME  | civicfix-backend                          | Name reported by /health |
+| FEATHERLESS_API_KEY    | (empty)                                   | Featherless key for AI analysis — empty until you add it |
+
+The app boots without `FEATHERLESS_API_KEY`; `POST /complaints/analyze`
+answers **502** with a clear message until the key is set (locally in
+`backend/.env`, or as a Vercel environment variable in production).
 
 ## Testing the API
 
@@ -78,8 +86,12 @@ With the server running:
 curl http://localhost:8000/health
 # {"status":"ok","service":"civicfix-backend"}
 
-curl http://localhost:8000/complaints
-# []
+# Upload a photo for vision analysis (requires FEATHERLESS_API_KEY):
+curl -X POST -F "file=@pothole.jpg" http://localhost:8000/complaints/analyze
 ```
 
 Or open http://localhost:8000/docs and press "Try it out".
+
+Uploaded photos are written to the OS temp directory while they are analyzed,
+then deleted — locally that keeps the repo clean, and on Vercel it is required
+because the serverless filesystem is read-only except for `/tmp`.

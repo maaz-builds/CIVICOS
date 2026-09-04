@@ -1,12 +1,24 @@
+"""LangGraph pipeline orchestrating the CivicFix agents.
+
+Drafted pipeline (not wired to an endpoint yet):
+
+    vision -> location -> routing -> complaint -> tracking
+
+The location / routing / complaint / tracking agents still raise
+NotImplementedError, so the graph only becomes runnable once those agents
+are implemented. The node calls below match each agent's declared
+interface so no further changes are needed when that happens.
+"""
+
 from typing import TypedDict
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from app.agents.vision_agent import VisionAgent
+from app.agents.complaint_agent import ComplaintAgent
 from app.agents.location_agent import LocationAgent
 from app.agents.routing_agent import RoutingAgent
-from app.agents.complaint_agent import ComplaintAgent
 from app.agents.tracking_agent import TrackingAgent
+from app.agents.vision_agent import VisionAgent
 
 
 class WorkflowState(TypedDict):
@@ -25,37 +37,47 @@ complaint = ComplaintAgent()
 tracking = TrackingAgent()
 
 
-async def vision_node(state: WorkflowState):
+async def vision_node(state: WorkflowState) -> WorkflowState:
+    """Identify the civic issue shown in the photo."""
     state["vision"] = await vision.analyze(state["image_path"])
     return state
 
 
-async def location_node(state: WorkflowState):
-    state["location"] = await location.locate(state["image_path"])
-    return state
-
-
-async def routing_node(state: WorkflowState):
-    state["routing"] = await routing.route(
-        state["vision"],
-        state["location"]
+async def location_node(state: WorkflowState) -> WorkflowState:
+    """Pin down where the issue is, from the vision description + photo."""
+    state["location"] = await location.extract_location(
+        description=state["vision"].get("description", ""),
+        photo_urls=[state["image_path"]],
     )
     return state
 
 
-async def complaint_node(state: WorkflowState):
-    state["complaint"] = await complaint.generate(
-        state["vision"],
-        state["location"],
-        state["routing"]
+async def routing_node(state: WorkflowState) -> WorkflowState:
+    """Decide which civic department should handle the issue."""
+    state["routing"] = await routing.route_to_department(
+        category=state["vision"].get("issue_type", ""),
+        ward=state["location"].get("ward"),
     )
     return state
 
 
-async def tracking_node(state: WorkflowState):
-    state["tracking"] = await tracking.create(
-        state["complaint"]
+async def complaint_node(state: WorkflowState) -> WorkflowState:
+    """Assemble one validated complaint record from the upstream outputs."""
+    state["complaint"] = await complaint.build_complaint(
+        {
+            "vision": state["vision"],
+            "location": state["location"],
+            "routing": state["routing"],
+        }
     )
+    return state
+
+
+async def tracking_node(state: WorkflowState) -> WorkflowState:
+    """Issue a tracking ID for the complaint."""
+    complaint_id = str(state["complaint"].get("id", ""))
+    tracking_id = await tracking.create_tracking_id(complaint_id)
+    state["tracking"] = {"tracking_id": tracking_id}
     return state
 
 

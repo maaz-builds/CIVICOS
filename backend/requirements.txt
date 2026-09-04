@@ -7,7 +7,15 @@ uvicorn>=0.30
 # Loads backend/.env into environment variables (used by app/config.py)
 python-dotenv>=1.0
 
-# NOTE: Nothing else is installed yet on purpose.
-#   - Supabase SDK:        add when we wire the database (later milestone)
-#   - Featherless SDK:     add when we wire AI (later milestone)
-#   - LangGraph:           add when we build the agent workflow (later milestone)
+# Parses multipart form uploads (required by FastAPI for UploadFile/File(...))
+python-multipart>=0.0.9
+
+# AI runtime - Featherless is OpenAI-compatible, so we use the OpenAI SDK
+# (drives the vision agent + text chat via app/services/featherless_service.py)
+openai>=1.40
+
+# Agent orchestration - the LangGraph complaint workflow
+# (backend/app/workflows/complaint_workflow.py)
+langgraph>=0.2
+
+# NOTE: Supabase SDK + storage are still pending (database milestone).
