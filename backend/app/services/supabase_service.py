@@ -66,3 +66,18 @@ class SupabaseService:
             .execute()
         )
         return list(response.data or [])
+
+    async def get_complaint_by_tracking_id(
+        self,
+        tracking_id: str,
+    ) -> dict[str, Any] | None:
+        """Return one complaint by its CF- tracking ID, or None if absent."""
+        response = (
+            self.client.table(self.TABLE)
+            .select("*")
+            .eq("tracking_id", tracking_id)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        return rows[0] if rows else None

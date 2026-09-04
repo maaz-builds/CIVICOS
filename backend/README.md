@@ -26,6 +26,9 @@ uvicorn app.main:app --reload --port 8000
 | ------ | ------------------- | -------------------------------------------------------------------- |
 | GET    | /health             | Liveness check → `{"status": "ok", "service": "civicfix-backend"}`   |
 | POST   | /complaints/analyze | Upload a photo → JSON analysis of the civic issue (needs `FEATHERLESS_API_KEY`) |
+| POST   | /complaints         | Create a complaint (JSON) → stored row incl. CF- tracking ID (Supabase) |
+| GET    | /complaints         | List recent complaints, newest first (Supabase)                      |
+| GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)   |
 | GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
 
 ## Structure
