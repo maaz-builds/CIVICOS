@@ -54,11 +54,14 @@ on conflict (id) do nothing;
 -- DEMO-GRADE policies: anyone with the anon key can upload and read photos
 -- in this bucket. Fine for a hackathon demo; restrict these (e.g. to
 -- authenticated users) before going to production.
+-- Dropped first so re-running the file is safe.
+drop policy if exists "allow anon upload complaint photos" on storage.objects;
 create policy "allow anon upload complaint photos"
     on storage.objects
     for insert
     with check (bucket_id = 'complaint-photos');
 
+drop policy if exists "allow anon read complaint photos" on storage.objects;
 create policy "allow anon read complaint photos"
     on storage.objects
     for select
