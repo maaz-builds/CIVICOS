@@ -6,12 +6,12 @@ Take a photo of a pothole, garbage pile, or broken street light in Hyderabad —
 CivicFix identifies the issue, routes it to the right civic department, and
 lets residents track the fix. Built for a hackathon, designed to grow.
 
-> **Status: working scaffold + vision analysis.** The repo ships a working
-> frontend ↔ backend health check and an AI photo-analysis endpoint
-> (`POST /complaints/analyze` via the Featherless Qwen2.5-VL vision agent).
-> Authentication, the remaining agents (location / routing / complaint /
-> tracking), wiring the LangGraph pipeline, and the Supabase database are
-> upcoming milestones.
+> **Status: full agent pipeline implemented.** Vision, location, routing,
+> and complaint agents all work and `POST /complaints/analyze` returns the
+> vision analysis + location + assigned GHMC department. Complaints save to
+> Supabase (photo → Storage → `image_url`) with a CF- tracking ID. Still
+> upcoming: tracking status updates, wiring the LangGraph pipeline into the
+> endpoints, and authentication.
 
 ## Tech stack
 
@@ -134,6 +134,6 @@ run everything together with the Vercel CLI: `npx vercel dev`.
 1. Complaint intake: form + `POST /complaints` + tracking ID
 2. Supabase persistence (users, complaints, statuses)
 3. ~~Image upload + storage~~ ✅ (Supabase Storage, linked via `image_url`)
-4. Implement the remaining agents: location → routing → tracking
+4. ~~Implement the remaining agents: location → routing → complaint~~ ✅ (tracking status still pending)
 5. Wire the LangGraph workflow (`complaint_workflow.py`) into the analyze flow
 6. User dashboards, maps, and status updates

@@ -1,9 +1,10 @@
 # CivicFix Backend
 
-FastAPI service for CivicFix Hyderabad. It exposes a health check and an AI
-photo-analysis endpoint (`POST /complaints/analyze`) that uses the Featherless
-vision agent to identify civic issues. The location / routing / complaint /
-tracking agents and the Supabase database arrive in later milestones.
+FastAPI service for CivicFix Hyderabad. It exposes a health check, an AI
+photo-analysis endpoint (`POST /complaints/analyze`) that identifies the
+civic issue, geocodes it, and routes it to the responsible GHMC department,
+and Supabase-backed complaint persistence with CF- tracking IDs. Tracking
+status updates and wiring the LangGraph pipeline are still pending.
 
 ## Quickstart
 
@@ -41,11 +42,11 @@ backend/
 │   ├── routes/               # One router module per resource
 │   │   ├── health.py         # GET /health
 │   │   └── complaints.py     # POST /complaints/analyze (vision analysis)
-│   ├── agents/               # AI agents — vision + tracking IDs live, rest are stubs
+│   ├── agents/               # AI agents — all five implemented ✅ (tracking status pending)
 │   │   ├── vision_agent.py   #   photo analysis (what is the issue?) ✅
-│   │   ├── location_agent.py #   where is it? (coords / ward)
-│   │   ├── routing_agent.py  #   which department handles it?
-│   │   ├── complaint_agent.py#   assemble + validate a complaint record
+│   │   ├── location_agent.py #   where is it? (coords / ward) ✅
+│   │   ├── routing_agent.py  #   which department handles it? ✅ (AI + rules)
+│   │   ├── complaint_agent.py#   assemble + validate a complaint record ✅
 │   │   └── tracking_agent.py #   collision-safe tracking IDs ✅ (status pending)
 │   ├── services/             # Integrations
 │   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)

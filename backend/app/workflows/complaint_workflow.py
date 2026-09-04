@@ -60,6 +60,8 @@ async def routing_node(state: WorkflowState) -> WorkflowState:
     state["routing"] = await routing.route_to_department(
         category=state["vision"].get("issue_type", ""),
         ward=state["location"].get("ward"),
+        severity=state["vision"].get("severity"),
+        description=state["vision"].get("description", ""),
     )
     return state
 
