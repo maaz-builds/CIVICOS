@@ -78,5 +78,13 @@ class Settings:
         "Qwen/Qwen2.5-7B-Instruct",
     )
 
+    # GHMC's official WhatsApp number for grievances (MyCUREApp accepts
+    # complaints via WhatsApp), digits only WITH the country code, e.g.
+    # 919000000000. When set, every saved complaint response gains a
+    # ``whatsapp_link`` - a wa.me deep link with the grievance text
+    # pre-filled - so the citizen can send it to GHMC in one tap. Leave
+    # empty to omit the button.
+    WHATSAPP_NUMBER: str = os.getenv("WHATSAPP_NUMBER", "")
+
 
 settings = Settings()

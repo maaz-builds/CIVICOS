@@ -105,6 +105,13 @@ export interface StoredComplaint extends ComplaintCreatePayload {
   tracking_id: string;
   status: string;
   created_at: string;
+  /**
+   * One-tap wa.me deep link with the grievance pre-filled for GHMC's
+   * official WhatsApp channel (MyCUREApp). Present only when the backend
+   * has WHATSAPP_NUMBER configured; otherwise null/absent and the UI hides
+   * the button.
+   */
+  whatsapp_link?: string | null;
 }
 
 /** Lifecycle of a complaint - mirrors the backend's ComplaintStatus Literal. */

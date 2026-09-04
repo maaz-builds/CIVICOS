@@ -155,6 +155,24 @@ export default function TrackPage() {
             <p className="mt-6 text-xs text-slate-500">
               Reported {new Date(result.created_at).toLocaleString()}
             </p>
+
+            {result.whatsapp_link && (
+              <div className="mt-4 rounded-xl border border-emerald-800/60 bg-emerald-900/30 p-4">
+                <a
+                  href={result.whatsapp_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 font-semibold text-slate-950 transition hover:bg-[#1fbd56]"
+                >
+                  📲 Send grievance to GHMC on WhatsApp
+                </a>
+                <p className="mt-2 text-center text-xs text-emerald-200/70">
+                  Opens WhatsApp with this grievance pre-filled for GHMC's
+                  official channel (MyCUREApp) — issue, ward, photo link and
+                  tracking ID included.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

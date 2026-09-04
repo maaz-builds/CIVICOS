@@ -25,17 +25,54 @@ the /tmp area.
 
 import json
 import os
+import re
 import shutil
 import tempfile
+import urllib.parse
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.agents.tracking_agent import TrackingAgent
+from app.config import settings
 from app.schemas.complaint_schema import ComplaintCreate, StatusUpdate
 from app.services.storage_service import StorageService
 from app.services.supabase_service import SupabaseService
 from app.workflows.complaint_workflow import get_complaint_workflow
+
+
+def _whatsapp_grievance_link(row: dict) -> str | None:
+    """Build a one-tap wa.me deep link for a stored complaint row.
+
+    GHMC's MyCUREApp accepts grievances via WhatsApp. When the
+    WHATSAPP_NUMBER env var is set, every saved/looked-up complaint
+    response carries this link so the citizen can forward the grievance to
+    GHMC's official channel with one tap - issue, severity, ward,
+    description, and a link to the photo are pre-filled. Returns None when
+    the number is not configured (the UI then hides the button).
+    """
+    number = re.sub(r"\D", "", settings.WHATSAPP_NUMBER)
+    if not number:
+        return None
+    lines = [
+        "GHMC Grievance - sent via CivicFix",
+        f"Tracking ID: {row.get('tracking_id', '')}",
+        f"Issue: {row.get('issue_type', '')}",
+    ]
+    if row.get("severity"):
+        lines.append(f"Severity: {row.get('severity')}")
+    if row.get("ward"):
+        lines.append(f"Ward/Area: {row.get('ward')}")
+    if row.get("department"):
+        lines.append(f"Assigned to: {row.get('department')}")
+    if row.get("description"):
+        lines.append(f"Details: {row.get('description')}")
+    if row.get("image_url"):
+        lines.append(f"Photo: {row.get('image_url')}")
+    return (
+        f"https://wa.me/{number}?text="
+        + urllib.parse.quote("\n".join(lines), safe="")
+    )
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
@@ -329,7 +366,12 @@ async def create_complaint(
 
         record["tracking_id"] = tracking_id
         record["image_url"] = image_url
-        return await db.insert_complaint(record)
+        stored = await db.insert_complaint(record)
+        # One-tap official channel: when WHATSAPP_NUMBER is configured, the
+        # success response also carries a wa.me link with the grievance
+        # pre-filled for GHMC's WhatsApp channel.
+        stored["whatsapp_link"] = _whatsapp_grievance_link(stored)
+        return stored
     except HTTPException:
         # A deliberate refusal (the 409 duplicate above) must pass through
         # untouched - not be rewritten into a 502 by the generic handler.
@@ -435,6 +477,8 @@ async def get_complaint(tracking_id: str):
             status_code=404,
             detail=f"No complaint found with tracking ID '{tracking_id}'.",
         )
+    # Attach the one-tap GHMC WhatsApp link (None when not configured).
+    row["whatsapp_link"] = _whatsapp_grievance_link(row)
     return row
 
 
