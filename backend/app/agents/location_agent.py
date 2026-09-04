@@ -5,17 +5,17 @@ coordinates via navigator.geolocation (see the /report page), or they are
 embedded in the photo's EXIF metadata.
 
 Coordinates are reverse-geocoded to a street address via OpenStreetMap
-(geopy/Nominatim, no API key needed). Nominatim addresses for Hyderabad
-carry precise tokens like "Ward 104 Kondapur" and "Greater Hyderabad
-Municipal Corporation West Zone", so the ward / zone is derived straight
-from the address by rules - that is the reliable path.
+(geopy/Nominatim, no API key needed). An LLM cannot turn bare lat/lng
+into an address, so the geocoder always supplies the raw text. From that
+address, the Featherless chat model (WARD_MODEL, default Qwen 7B) is the
+PRIMARY interpreter: it resolves the GHMC zone, the precise ward (e.g.
+"Ward 104 Kondapur"), a short area name, and the infrastructure type.
 
-A Featherless chat model (WARD_MODEL, default Qwen 7B) then refines the
-mapping and guesses the infrastructure type. It is a bonus, not a
-dependency: if the model is unset, gated, busy, or slow, the
-address-derived values still stand. The nearby-incident counters are real
-counts from the Supabase `complaints` table (within ~2 km), or null when
-the database is unreachable - never hardcoded.
+The built-in address parser is only a fallback - it keeps the location
+step working when the model is unset, gated, busy, or returns garbage.
+The nearby-incident counters are real counts from the Supabase
+`complaints` table (within ~2 km), or null when the database is
+unreachable - never hardcoded.
 
 Both integrations are synchronous SDK calls, so they run in worker threads
 (asyncio.to_thread) - they must not block FastAPI's event loop.
@@ -33,7 +33,8 @@ from app.config import settings
 from app.services.featherless_service import FeatherlessService
 from app.services.supabase_service import SupabaseService
 
-# Well-known GHMC zone / prominent-area names, matched against the address.
+# Well-known GHMC zone / prominent-area names, matched against the address
+# by the RULES FALLBACK (the AI is the primary path).
 _KNOWN_AREAS = [
     "Charminar",
     "Khairatabad",
@@ -78,6 +79,65 @@ _ALLOWED_INFRA = {
     "Other",
 }
 
+# Zone names the model is allowed to claim. Covers the compass circles
+# Nominatim puts in addresses ("West Zone") plus the six official GHMC
+# zone names and common "X Zone" spellings of them.
+_KNOWN_ZONES = {
+    "Central Zone",
+    "East Zone",
+    "West Zone",
+    "North Zone",
+    "South Zone",
+    "Charminar",
+    "Khairatabad",
+    "Kukatpally",
+    "LB Nagar",
+    "L B Nagar",
+    "Secunderabad",
+    "Serilingampally",
+    "Alwal",
+    "Rajendranagar",
+    "Quthbullapur",
+}
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _plausible_zone(value: str) -> bool:
+    """Accept a zone the model returned only if it looks like a real one."""
+    v = value.strip()
+    if not v or len(v) > 40:
+        return False
+    if v.lower() in {z.lower() for z in _KNOWN_ZONES}:
+        return True
+    # "Serilingampally Zone" / "Kondapur Zone" style spellings are fine too.
+    return bool(re.fullmatch(r".+?\s+zone", v, re.IGNORECASE))
+
+
+def _extract_json(text: str) -> dict[str, Any] | None:
+    """Robustly pull a JSON object out of a model reply.
+
+    Handles markdown fences, leading prose, and trailing commentary -
+    anything that a plain json.loads would choke on.
+    """
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if 0 <= start < end:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except Exception:
+            return None
+    return None
+
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Great-circle distance in kilometres between two points."""
@@ -90,11 +150,11 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def _ward_from_address(address: str) -> tuple[str, str, str]:
-    """Derive (ward, area_name, zone) from a Nominatim address string.
+    """RULES FALLBACK - derive (ward, area_name, zone) from an address.
 
-    Pure rules, no network and no AI: Nominatim addresses for Hyderabad
-    include tokens like 'Ward 104 Kondapur' and 'West Zone', which pins the
-    complaint to a real GHMC ward. Returns ('', '', '') when nothing matches.
+    Only used when the AI model is unset, busy, gated, or returns junk.
+    Nominatim addresses for Hyderabad include tokens like 'Ward 104
+    Kondapur' and 'West Zone', which is enough for a civic demo.
     """
     ward = ""
     area = ""
@@ -139,7 +199,7 @@ def _ward_from_address(address: str) -> tuple[str, str, str]:
 
 
 def _infra_from_address(address: str) -> str:
-    """Best-effort infrastructure type from address keywords."""
+    """RULES FALLBACK - best-effort infrastructure type from keywords."""
     lower = address.lower()
     if "highway" in lower or "expressway" in lower:
         return "Highway"
@@ -179,7 +239,8 @@ class LocationAgent:
     """Context-building agent: Maps GPS to real-world infrastructure."""
 
     def __init__(self):
-        # OpenStreetMap reverse geocoding (no API key needed)
+        # OpenStreetMap reverse geocoding (no API key needed) - always
+        # supplies the raw address text the AI then interprets.
         self.geolocator = Nominatim(user_agent="Civicos_HackWave_ContextAgent")
         self.ai = FeatherlessService()
 
@@ -192,6 +253,53 @@ class LocationAgent:
             .execute()
         )
         return list(response.data or [])
+
+    async def _ai_map(
+        self, exact_address: str, lat: float, lng: float
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Featherless (WARD_MODEL): interpret the address as GHMC context.
+
+        Returns (parsed_data, error). ``None`` data means the model was
+        unusable and the caller must fall back to the rules parser.
+        """
+        system_prompt = f"""
+        You are the civic mapping engine for the Greater Hyderabad Municipal
+        Corporation (GHMC). A citizen reported an issue at these coordinates:
+        {lat:.5f}, {lng:.5f}
+
+        Reverse geocoding produced this exact address:
+        {exact_address}
+
+        Interpret the address and return ONLY a raw JSON object (no prose,
+        no markdown) with exactly these fields:
+        - "zone": the GHMC zone. If the address names one (e.g. "West Zone",
+          "Central Zone"), return that exact name. Otherwise map the locality
+          to the closest official GHMC zone: Charminar, Khairatabad,
+          Kukatpally, LB Nagar, Secunderabad, or Serilingampally.
+        - "ward": the precise GHMC ward when the address contains one
+          (e.g. "Ward 104 Kondapur"); otherwise your best guess or "".
+        - "area_name": one short recognisable locality name (e.g. "Madhapur").
+        - "infrastructure_type": one of {sorted(_ALLOWED_INFRA)}.
+        """
+        try:
+            raw = await self.ai.chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Return the JSON mapping for this address now."
+                        ),
+                    },
+                ],
+                model=settings.WARD_MODEL,
+            )
+            data = _extract_json(raw)
+            if not data:
+                return None, "Model returned no parseable JSON"
+            return data, None
+        except Exception as exc:
+            return None, str(exc)
 
     async def extract_location(
         self,
@@ -223,58 +331,35 @@ class LocationAgent:
             print(f"Geocoding failed: {exc}")
             exact_address = "Address lookup failed"
 
-        # 3. WARD/ZONE: derive from the address first - this always works.
-        ward, area, zone = _ward_from_address(exact_address)
-        infrastructure_type = _infra_from_address(exact_address)
+        # 3. RULES FALLBACK VALUES first (always computed, used only when
+        #    the AI cannot answer).
+        ward_r, area_r, zone_r = _ward_from_address(exact_address)
+        infra = _infra_from_address(exact_address)
 
-        # 4. AI MAPPING (optional refinement): runs when WARD_MODEL is set.
-        #    A gated/busy/missing model must never break the location step,
-        #    and rules-derived values win over a confused model's guesses.
-        ai_error = None
+        # 4. AI MAPPING (primary): Featherless interprets the address.
+        ai_data: dict[str, Any] | None = None
+        ai_error: str | None = None
+        ai_used = False
         if settings.WARD_MODEL:
-            system_prompt = f"""
-            You are a civic context engine for the Greater Hyderabad Municipal Corporation (GHMC).
-            Given this exact address: {exact_address}
+            ai_data, ai_error = await self._ai_map(exact_address, lat, lng)
 
-            Determine the likely GHMC Zone (e.g., Charminar, Khairatabad, Secunderabad, Kukatpally, Serilingampally, LB Nagar), a short area name, and the infrastructure type.
+        if ai_data:
+            ai_used = True
 
-            Return ONLY a raw JSON object with:
-            - "zone" (string, the GHMC zone name)
-            - "area_name" (string, a short recognisable locality name)
-            - "infrastructure_type" (string, one of: {sorted(_ALLOWED_INFRA)})
-            """
+            ai_zone = _clean(ai_data.get("zone"))
+            if ai_zone and _plausible_zone(ai_zone):
+                zone = ai_zone
+            else:
+                zone = zone_r
 
-            try:
-                raw = await self.ai.chat_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {
-                            "role": "user",
-                            "content": (
-                                "Map this address to a GHMC zone and return the JSON."
-                            ),
-                        },
-                    ],
-                    model=settings.WARD_MODEL,
-                )
-                cleaned_text = raw.replace("```json", "").replace("```", "").strip()
-                ai_data = json.loads(cleaned_text)
-                ai_zone = str(ai_data.get("zone") or "").strip()
-                ai_area = str(ai_data.get("area_name") or "").strip()
-                ai_infra = str(ai_data.get("infrastructure_type") or "").strip()
+            ward = _clean(ai_data.get("ward")) or ward_r
+            area = _clean(ai_data.get("area_name")) or area_r
 
-                # Zone: prefer the address's own token (ground truth), fall
-                # back to the AI when the address had none.
-                if not zone and ai_zone:
-                    zone = ai_zone
-                # Area: an AI guess only helps when the address gave nothing.
-                if not area and ai_area:
-                    area = ai_area
-                # Infrastructure: only accept a value from the allow-list.
-                if ai_infra in _ALLOWED_INFRA:
-                    infrastructure_type = ai_infra
-            except Exception as exc:
-                ai_error = str(exc)
+            ai_infra = _clean(ai_data.get("infrastructure_type"))
+            if ai_infra in _ALLOWED_INFRA:
+                infra = ai_infra
+        else:
+            zone, ward, area = zone_r, ward_r, area_r
 
         # The GHMC routes on ward numbers, so prefer the precise ward
         # ("Ward 104 Kondapur") over the zone; fall back to zone / area.
@@ -297,8 +382,9 @@ class LocationAgent:
             "area_name": area or "Unknown",
             "ward": ward_name,
             "zone": zone,
-            "infrastructure_type": infrastructure_type,
+            "infrastructure_type": infra,
             "nearby_incidents": nearby_incidents,
             "unresolved_incidents": unresolved_incidents,
+            "ai_used": ai_used,
             "ai_mapping_error": ai_error,
         }

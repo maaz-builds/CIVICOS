@@ -58,6 +58,8 @@ export interface LocationResult {
   /** Real counts from stored complaints within ~2 km; null when the DB is unreachable. */
   nearby_incidents?: number | null;
   unresolved_incidents?: number | null;
+  /** True when the Featherless model interpreted the address; false on rules fallback. */
+  ai_used?: boolean;
 }
 
 /** Routing enrichment produced by the Routing Agent (POST /complaints/analyze). */
