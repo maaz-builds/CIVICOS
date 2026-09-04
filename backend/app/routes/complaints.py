@@ -1,33 +1,131 @@
-from fastapi import APIRouter, UploadFile, File
+"""Complaint endpoints.
+
+- POST /complaints/analyze   upload a photo -> vision analysis (AI)
+- POST /complaints           create a complaint record (Supabase)
+- GET  /complaints           list recent complaints (newest first)
+- GET  /complaints/{tracking_id}  look up one complaint by its CF- ID
+
+Uploaded photos are written to the OS temp directory instead of a
+repo-local folder: locally that keeps the working tree clean, and on Vercel
+it is required, because the serverless filesystem is read-only except for
+the /tmp area.
+"""
+
 import os
 import shutil
-import uuid
+import tempfile
 
+from fastapi import APIRouter, File, HTTPException, UploadFile
+
+from app.agents.tracking_agent import TrackingAgent
 from app.agents.vision_agent import VisionAgent
+from app.schemas.complaint_schema import ComplaintCreate
+from app.services.supabase_service import SupabaseService
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Reject huge uploads early: a giant image means a giant base64 payload and
+# far more vision tokens, which slows the model call dramatically.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 vision = VisionAgent()
+tracking = TrackingAgent()
+db = SupabaseService()
 
 
 @router.post("/analyze")
 async def analyze_civic_issue(file: UploadFile = File(...)):
-    # Create unique filename
-    extension = file.filename.split(".")[-1]
-    filename = f"{uuid.uuid4()}.{extension}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    """Upload a photo and get the vision agent's analysis of the issue."""
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB). "
+                "Resize it and try again."
+            ),
+        )
 
-    # Save uploaded image
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Derive a safe extension from the upload name (default to .jpg).
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if not suffix.startswith("."):
+        suffix = ".jpg"
 
-    # AI Analysis
-    result = await vision.analyze(filepath)
+    tmp_path = None
+    try:
+        # Write the upload to a temporary file, then analyze it.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as buffer:
+            tmp_path = buffer.name
+            shutil.copyfileobj(file.file, buffer)
 
-    return {
-        "success": True,
-        "analysis": result
-    }
+        analysis = await vision.analyze(
+            tmp_path,
+            content_type=file.content_type or "image/jpeg",
+        )
+    except Exception as exc:
+        # AI providers fail for many reasons (missing key, quota, bad
+        # model output) - surface a clean error instead of a traceback.
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI analysis failed: {exc}",
+        ) from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return {"success": True, "analysis": analysis}
+
+
+@router.post("", status_code=201)
+async def create_complaint(payload: ComplaintCreate):
+    """Persist a new complaint and return the stored row with its tracking ID."""
+    try:
+        tracking_id = await tracking.create_tracking_id(complaint_id="pending")
+        record = payload.model_dump()
+        record["tracking_id"] = tracking_id
+        return await db.insert_complaint(record)
+    except RuntimeError as exc:
+        # Supabase not configured - clear setup message, not a traceback.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface real Supabase errors
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not save complaint: {exc}",
+        ) from exc
+
+
+@router.get("")
+async def list_complaints(limit: int = 20):
+    """Return the most recent complaints, newest first."""
+    try:
+        return await db.list_complaints(limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not list complaints: {exc}",
+        ) from exc
+
+
+@router.get("/{tracking_id}")
+async def get_complaint(tracking_id: str):
+    """Look up one complaint by its CF- tracking ID."""
+    try:
+        row = await db.get_complaint_by_tracking_id(tracking_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not look up complaint: {exc}",
+        ) from exc
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No complaint found with tracking ID '{tracking_id}'.",
+        )
+    return row

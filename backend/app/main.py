@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routes.complaints import router as complaint_router
+from app.routes.health import router as health_router
 
 app = FastAPI(title="CivicFix API")
 
@@ -14,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health_router)
 app.include_router(complaint_router)
 
 

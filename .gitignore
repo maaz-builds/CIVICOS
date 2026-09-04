@@ -13,6 +13,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# Local upload test artifacts (the API writes uploads to the OS temp dir now)
+uploads/
+
 # ---------- Environment files ----------
 # Local env files are ignored; the .example files document what goes in them.
 .env

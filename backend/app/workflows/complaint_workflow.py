@@ -1,28 +1,101 @@
-"""LangGraph workflow for complaint processing (NOT implemented yet).
+"""LangGraph pipeline orchestrating the CivicFix agents.
 
-Future pipeline (later milestone):
+Drafted pipeline (not wired to an endpoint yet):
 
-    photo + description
-        -> VisionAgent       (what is it? how bad?)
-        -> LocationAgent     (where is it?)
-        -> RoutingAgent      (which department?)
-        -> ComplaintAgent     (assemble + validate the record)
-        -> TrackingAgent      (tracking ID + status)
-        -> SupabaseService    (persist)
+    vision -> location -> routing -> complaint -> tracking
 
-LangGraph is intentionally NOT installed yet (see requirements.txt), so this
-module only sketches the shape. The agents must be finished first.
+The location / routing / complaint / tracking agents still raise
+NotImplementedError, so the graph only becomes runnable once those agents
+are implemented. The node calls below match each agent's declared
+interface so no further changes are needed when that happens.
 """
 
+from typing import TypedDict
 
-def build_complaint_workflow() -> "object":
-    """Build and return the compiled LangGraph graph (implement later).
+from langgraph.graph import END, StateGraph
 
-    TODO(workflow milestone): define the StateGraph with the nodes above,
-    then compile it. Keep the langgraph import inside this function so the
-    module still imports before LangGraph is installed.
-    """
-    raise NotImplementedError(
-        "build_complaint_workflow is not implemented yet - requires LangGraph "
-        "and the finished agents."
+from app.agents.complaint_agent import ComplaintAgent
+from app.agents.location_agent import LocationAgent
+from app.agents.routing_agent import RoutingAgent
+from app.agents.tracking_agent import TrackingAgent
+from app.agents.vision_agent import VisionAgent
+
+
+class WorkflowState(TypedDict):
+    image_path: str
+    vision: dict
+    location: dict
+    routing: dict
+    complaint: dict
+    tracking: dict
+
+
+vision = VisionAgent()
+location = LocationAgent()
+routing = RoutingAgent()
+complaint = ComplaintAgent()
+tracking = TrackingAgent()
+
+
+async def vision_node(state: WorkflowState) -> WorkflowState:
+    """Identify the civic issue shown in the photo."""
+    state["vision"] = await vision.analyze(state["image_path"])
+    return state
+
+
+async def location_node(state: WorkflowState) -> WorkflowState:
+    """Pin down where the issue is, from the vision description + photo."""
+    state["location"] = await location.extract_location(
+        description=state["vision"].get("description", ""),
+        photo_urls=[state["image_path"]],
     )
+    return state
+
+
+async def routing_node(state: WorkflowState) -> WorkflowState:
+    """Decide which civic department should handle the issue."""
+    state["routing"] = await routing.route_to_department(
+        category=state["vision"].get("issue_type", ""),
+        ward=state["location"].get("ward"),
+    )
+    return state
+
+
+async def complaint_node(state: WorkflowState) -> WorkflowState:
+    """Assemble one validated complaint record from the upstream outputs."""
+    state["complaint"] = await complaint.build_complaint(
+        {
+            "vision": state["vision"],
+            "location": state["location"],
+            "routing": state["routing"],
+        }
+    )
+    return state
+
+
+async def tracking_node(state: WorkflowState) -> WorkflowState:
+    """Issue a tracking ID for the complaint."""
+    complaint_id = str(state["complaint"].get("id", ""))
+    tracking_id = await tracking.create_tracking_id(complaint_id)
+    state["tracking"] = {"tracking_id": tracking_id}
+    return state
+
+
+def build_complaint_workflow():
+    graph = StateGraph(WorkflowState)
+
+    graph.add_node("vision", vision_node)
+    graph.add_node("location", location_node)
+    graph.add_node("routing", routing_node)
+    graph.add_node("complaint", complaint_node)
+    graph.add_node("tracking", tracking_node)
+
+    graph.set_entry_point("vision")
+
+    graph.add_edge("vision", "location")
+    graph.add_edge("location", "routing")
+    graph.add_edge("routing", "complaint")
+    graph.add_edge("complaint", "tracking")
+    graph.add_edge("tracking", END)
+
+    return graph.compile()
