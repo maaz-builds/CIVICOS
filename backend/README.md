@@ -4,10 +4,9 @@ FastAPI service for CivicFix Hyderabad. It exposes a health check, an AI
 photo-analysis endpoint (`POST /complaints/analyze`) that identifies the
 civic issue, geocodes it, and routes it to the responsible GHMC department,
 and Supabase-backed complaint persistence with CF- tracking IDs. The
-LangGraph pipeline is wired into the analyze endpoint, and the GHMC demo
-portal closes the loop: it lists real complaints and advances their
-lifecycle status (submitted → assigned → in progress → resolved), which
-citizens see immediately on the /track page.
+LangGraph pipeline is wired into the analyze endpoint, a /complaints/nearby
+scan powers the citizen map, and saved complaints carry a one-tap WhatsApp
+grievance link to GHMC's official channel (set WHATSAPP_NUMBER to enable).
 
 ## Quickstart
 
@@ -33,7 +32,7 @@ uvicorn app.main:app --reload --port 8000
 | POST   | /complaints         | Create a complaint (multipart form) → stored row incl. CF- tracking ID; pass `file` to upload the photo to Supabase Storage (linked via `image_url`) |
 | GET    | /complaints         | List recent complaints, newest first (Supabase)                      |
 | GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)   |
-| PATCH  | /complaints/{tracking_id}/status | Advance a complaint's status (GHMC portal action) → updated row; invalid statuses get 422 |
+| GET    | /complaints/nearby | Complaints within a radius of a GPS point, nearest first + optional category filters |
 | GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
 
 ## Structure
@@ -45,7 +44,7 @@ backend/
 │   ├── config.py             # Central settings (reads .env automatically)
 │   ├── routes/               # One router module per resource
 │   │   ├── health.py         # GET /health
-│   │   └── complaints.py     # analyze (LangGraph), create, list, lookup, status PATCH
+│   │   └── complaints.py     # analyze (LangGraph), create, list, nearby, lookup
 │   ├── agents/               # AI agents — all five implemented ✅
 │   │   ├── vision_agent.py   #   photo analysis (what is the issue?) ✅
 │   │   ├── location_agent.py #   where is it? (coords / ward) ✅ AI-primary

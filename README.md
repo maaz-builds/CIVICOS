@@ -9,9 +9,10 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 > **Status: end-to-end loop implemented.** The LangGraph pipeline
 > (vision → location → routing) is wired into `POST /complaints/analyze`,
 > complaints persist to Supabase (photo → Storage → `image_url`) with a
-> CF- tracking ID, the GHMC demo portal (/ghmc) lists real complaints and
-> advances their lifecycle status, and citizens see the change instantly on
-> /track. Still upcoming: authentication and a real (non-demo) GHMC intake.
+> CF- tracking ID, a /nearby map shows stored complaints around your live
+> location, and a one-tap WhatsApp grievance forwards each complaint to
+> GHMC's official channel. Still upcoming: authentication and a real
+> (non-demo) GHMC intake.
 
 ## Tech stack
 
@@ -22,7 +23,7 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 | Database  | Supabase (Postgres + Storage)                           | Live — keys in env, schema.sql applied    |
 | AI        | Featherless AI (OpenAI-compatible)                      | Vision, Location + Routing agents live    |
 | Workflows | LangGraph (agent orchestration)                         | Live — wired into `POST /complaints/analyze` |
-| API       | REST (frontend calls the FastAPI backend)               | `/health`, analyze, create, list, lookup, status PATCH |
+| API       | REST (frontend calls the FastAPI backend)               | `/health`, analyze, create, list, lookup, nearby |
 
 ## Repository layout
 
@@ -149,6 +150,8 @@ run everything together with the Vercel CLI: `npx vercel dev`.
 3. ~~Image upload + storage~~ ✅ (Supabase Storage, linked via `image_url`)
 4. ~~All five agents: vision → location → routing → complaint → tracking~~ ✅
 5. ~~Wire the LangGraph workflow into the analyze flow~~ ✅
-6. ~~GHMC portal → status updates → visible on /track~~ ✅ (demo-grade)
+6. GHMC status-update portal — removed by design: without authentication,
+   open status editing made the data meaningless. Statuses are read-only
+   until a real govt intake exists.
 7. Up next: authentication (per-user complaints), a real GHMC intake with
    verified credentials, maps/ward dashboards, automated tests

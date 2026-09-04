@@ -41,15 +41,10 @@ create policy "allow anon select"
     for select
     using (true);
 
--- The GHMC demo portal advances complaint statuses (submitted -> assigned
--- -> in progress -> resolved); citizens then see the change on /track.
--- Dropped first so re-running the file is safe.
+-- Complaint statuses are NOT editable: the demo portal was removed, so
+-- nobody (anon or otherwise) can change a status after filing. The drop
+-- below revokes the old policy if it was ever created - safe to re-run.
 drop policy if exists "allow anon update complaints" on public.complaints;
-create policy "allow anon update complaints"
-    on public.complaints
-    for update
-    using (true)
-    with check (true);
 
 -- ---------------------------------------------------------------------------
 -- Storage: complaint photo uploads.

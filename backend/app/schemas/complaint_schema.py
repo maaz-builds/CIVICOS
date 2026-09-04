@@ -6,13 +6,7 @@ Supabase `complaints` table (see backend/supabase/schema.sql); the database
 adds `id`, `tracking_id`, `status`, and `created_at` server-side.
 """
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
-
-# Lifecycle of a complaint. Stored lowercase in the DB (schema default
-# 'submitted'); the GHMC portal advances it and the /track page renders it.
-ComplaintStatus = Literal["submitted", "assigned", "in progress", "resolved"]
 
 
 class ComplaintCreate(BaseModel):
@@ -29,17 +23,4 @@ class ComplaintCreate(BaseModel):
     routing_notes: str | None = None
     image_url: str | None = Field(
         None, description="Public photo URL (once Supabase Storage is wired)"
-    )
-
-
-class StatusUpdate(BaseModel):
-    """Body of PATCH /complaints/{tracking_id}/status.
-
-    Literal-typed, so FastAPI rejects anything outside the lifecycle with a
-    clean 422 before it reaches the database.
-    """
-
-    status: ComplaintStatus = Field(
-        ...,
-        description="submitted | assigned | in progress | resolved",
     )

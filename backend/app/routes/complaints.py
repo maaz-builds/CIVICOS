@@ -13,9 +13,6 @@
                              optionally filtered by category (Nearby
                              Activity map)
 - GET  /complaints/{tracking_id}  look up one complaint by its CF- ID
-- PATCH /complaints/{tracking_id}/status  advance a complaint's lifecycle
-                             status (submitted -> assigned -> in progress
-                             -> resolved); used by the GHMC demo portal
 
 Uploaded media are written to the OS temp directory instead of a
 repo-local folder: locally that keeps the working tree clean, and on Vercel
@@ -35,7 +32,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agents.tracking_agent import TrackingAgent
 from app.config import settings
-from app.schemas.complaint_schema import ComplaintCreate, StatusUpdate
+from app.schemas.complaint_schema import ComplaintCreate
 from app.services.storage_service import StorageService
 from app.services.supabase_service import SupabaseService
 from app.workflows.complaint_workflow import get_complaint_workflow
@@ -479,34 +476,4 @@ async def get_complaint(tracking_id: str):
         )
     # Attach the one-tap GHMC WhatsApp link (None when not configured).
     row["whatsapp_link"] = _whatsapp_grievance_link(row)
-    return row
-
-
-@router.patch("/{tracking_id}/status")
-async def update_complaint_status(tracking_id: str, body: StatusUpdate):
-    """Advance a complaint's lifecycle status (GHMC portal action).
-
-    The citizen's copy of the row on GET /complaints/{tracking_id} (the
-    /track page) reflects the new status immediately, which closes the
-    loop: file on /report, work it on /ghmc, watch it on /track.
-    """
-    try:
-        row = await db.update_complaint_status(tracking_id, body.status)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - surface real Supabase errors
-        raise HTTPException(
-            status_code=502,
-            detail=f"Could not update complaint: {exc}",
-        ) from exc
-
-    if row is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No complaint found with tracking ID '{tracking_id}'. "
-                "If it exists, re-run backend/supabase/schema.sql - the "
-                "update policy must be created before statuses can change."
-            ),
-        )
     return row
