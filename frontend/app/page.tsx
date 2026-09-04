@@ -1,5 +1,15 @@
 import Link from "next/link";
-import { Camera, Compass, Radar, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  Camera,
+  Compass,
+  FileText,
+  HeartPulse,
+  Radar,
+  Search,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import HealthCheck from "@/components/health-check";
 
 const plannedFeatures = [
@@ -26,13 +36,60 @@ const plannedFeatures = [
   },
 ] as const;
 
-const WORKFLOW_STEPS = [
-  "Upload",
-  "Vision AI",
-  "Location",
-  "Routing",
-  "Tracking ID",
-];
+const NATIONAL_STATS = [
+  {
+    Icon: AlertTriangle,
+    value: "5,432",
+    label: "Road accidents",
+    note: "Caused by potholes",
+    valueClass: "text-saffron-400",
+  },
+  {
+    Icon: HeartPulse,
+    value: "2,385",
+    label: "Deaths",
+    note: "≈ 6–7 deaths every day",
+    valueClass: "text-rose-400",
+  },
+  {
+    Icon: Users,
+    value: "4,643",
+    label: "People injured",
+    note: "Grievous + minor injuries",
+    valueClass: "text-chakra-400",
+  },
+  {
+    Icon: TrendingUp,
+    value: "+53%",
+    label: "5-year trend",
+    note: "Increase in pothole deaths since 2020",
+    valueClass: "text-purple-400",
+  },
+] as const;
+
+const TELANGANA_STATS = [
+  { metric: "Pothole-related accidents", value: "86" },
+  { metric: "Deaths", value: "27" },
+  { metric: "Injured", value: "86" },
+] as const;
+
+const HYDERABAD_STATS = [
+  { value: "3,058", text: "total road accidents in Hyderabad during 2024." },
+  { value: "286", text: "people lost their lives." },
+  {
+    value: "Most accident-prone",
+    text: "metro in India — ACKO Accident Index 2024.",
+  },
+] as const;
+
+function SourcePill({ label }: { label: string }) {
+  return (
+    <span className="ml-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 align-middle text-[11px] font-medium text-slate-300">
+      <FileText className="size-3" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
 
 export default function Home() {
   return (
@@ -52,8 +109,7 @@ export default function Home() {
         </div>
 
         <h1 className="mx-auto mt-8 max-w-4xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-7xl">
-          Report Civic Issues
-          <span className="text-tricolor block pb-1">With One Photo</span>
+          <span className="text-tricolor">Report Civic Issues</span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-slate-400">
@@ -133,55 +189,121 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Workflow */}
-      <section className="glass mt-20 rounded-3xl p-8 sm:p-10">
-        <div className="text-center">
+      {/* Statistics - official public data for the pitch. */}
+      <section className="mt-24">
+        <div className="mb-12 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-            Pipeline
+            Why it matters
           </p>
-          <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Autonomous Workflow
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Pothole accident statistics
+            <span className="text-slate-400"> — India &amp; Telangana</span>
           </h2>
         </div>
 
-        <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {WORKFLOW_STEPS.map((step, index) => {
-            const hues = [
-              "from-saffron-500/80 to-saffron-400/60",
-              "from-ivory-100/80 to-ivory-200/60",
-              "from-chakra-500/80 to-chakra-400/60",
-              "from-india-500/80 to-india-400/60",
-              "from-chakra-500/80 to-india-400/60",
-            ];
-            return (
-              <li key={step} className="relative">
-                <div className="glass flex h-full flex-col items-center rounded-2xl px-4 py-6 text-center transition duration-300 hover:-translate-y-0.5 hover:border-white/25">
+        <div className="glass rounded-3xl p-8 sm:p-10">
+          {/* National impact */}
+          <div>
+            <h3 className="font-display text-lg font-semibold text-white">
+              National impact (2024)
+            </h3>
+            <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {NATIONAL_STATS.map((stat) => {
+                const Icon = stat.Icon;
+                return (
+                  <div
+                    key={stat.label}
+                    className="glass rounded-2xl p-5 transition duration-300 hover:-translate-y-0.5 hover:border-white/25"
+                  >
+                    <Icon className="size-5 text-slate-400" aria-hidden="true" />
+                    <p className="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+                      <span className={stat.valueClass}>{stat.value}</span>
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-200">
+                      {stat.label}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">{stat.note}</p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-5 text-xs text-slate-500">
+              Source: Ministry of Road Transport &amp; Highways, Government of
+              India.
+              <SourcePill label="Digital Sansad +1" />
+            </p>
+          </div>
+
+          <div
+            aria-hidden="true"
+            className="mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent"
+          />
+
+          {/* Telangana */}
+          <div className="mt-10">
+            <h3 className="font-display text-lg font-semibold text-white">
+              Telangana (2024)
+            </h3>
+            <table className="mt-5 w-full max-w-xl text-sm">
+              <thead>
+                <tr className="border-b border-white/10 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <th scope="col" className="pb-2 font-semibold">
+                    Metric
+                  </th>
+                  <th scope="col" className="pb-2 text-right font-semibold">
+                    Value
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {TELANGANA_STATS.map((row) => (
+                  <tr key={row.metric}>
+                    <td className="py-3 text-slate-400">{row.metric}</td>
+                    <td className="py-3 text-right font-display text-lg font-bold text-white">
+                      {row.value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-4 text-xs text-slate-500">
+              Official state-wise parliamentary data.
+              <SourcePill label="Digital Sansad" />
+            </p>
+          </div>
+
+          <div
+            aria-hidden="true"
+            className="mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent"
+          />
+
+          {/* Hyderabad */}
+          <div className="mt-10">
+            <h3 className="font-display text-lg font-semibold text-white">
+              Hyderabad road safety
+            </h3>
+            <ul className="mt-5 max-w-xl space-y-3 text-sm leading-relaxed text-slate-300">
+              {HYDERABAD_STATS.map((item) => (
+                <li key={item.value} className="flex gap-2">
                   <span
                     aria-hidden="true"
-                    className={`grid size-9 place-items-center rounded-full bg-gradient-to-br font-display text-sm font-bold text-navy-950 ${hues[index % hues.length]}`}
-                  >
-                    {index + 1}
+                    className="mt-2 h-1 w-3 shrink-0 rounded-full bg-saffron-500/70"
+                  />
+                  <span>
+                    <strong className="font-display font-bold text-white">
+                      {item.value}{" "}
+                    </strong>
+                    {item.text}
                   </span>
-                  <span className="mt-3 text-sm font-medium text-slate-200">
-                    {step}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-
-        <p className="mt-8 text-center text-xs text-slate-500">
-          Vision → Location → Routing run live through a LangGraph pipeline —
-          see real per-stage progress on the{" "}
-          <Link
-            href="/report"
-            className="font-semibold text-chakra-400 transition hover:text-chakra-400/80"
-          >
-            report page
-          </Link>
-          .
-        </p>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs text-slate-500">
+              ACKO Accident Index 2024.
+              <SourcePill label="NewsMeter +1" />
+            </p>
+          </div>
+        </div>
       </section>
     </main>
   );
