@@ -1,11 +1,125 @@
 /* Tailwind CSS v4 entry point - scans content and generates utilities. */
 @import "tailwindcss";
 
-/*
-  Global custom styles (CSS variables, fonts, keyframes, ...). Keep
-  per-component styling inside the components instead - these are only the
-  keyframe animations that Tailwind's defaults do not ship.
-*/
+/* ---------------------------------------------------------------------------
+   CivicFix design system - premium gov-tech, deep navy base, restrained
+   Indian tricolor accents (saffron / ivory / india green / chakra blue).
+   Presentation only: no application logic lives here.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-inter), ui-sans-serif,
+    system-ui, sans-serif;
+
+  /* Deep navy canvas */
+  --color-navy-950: #060b16;
+  --color-navy-900: #0a1220;
+  --color-navy-800: #101b30;
+  --color-navy-700: #1a2944;
+  --color-navy-600: #26395c;
+
+  /* Tricolor + chakra */
+  --color-saffron-400: #ff8a4c;
+  --color-saffron-500: #ff671f;
+  --color-ivory-100: #f7f1e3;
+  --color-ivory-200: #efe6d0;
+  --color-india-400: #12924f;
+  --color-india-500: #046a38;
+  --color-chakra-400: #5b8def;
+  --color-chakra-500: #2f6fed;
+  --color-chakra-600: #1e56c8;
+}
+
+/* Base ---------------------------------------------------------------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-navy-950);
+  color: #cbd5e1; /* slate-300 */
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Restrained ambient tricolor lighting: two slow-drifting glows (saffron
+   top-left, india green bottom-right) + a faint chakra-blue centre. Purely
+   decorative; disabled under prefers-reduced-motion. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      42rem 42rem at 12% -8%,
+      rgba(255, 103, 31, 0.13),
+      transparent 62%
+    ),
+    radial-gradient(
+      40rem 40rem at 96% 108%,
+      rgba(4, 106, 56, 0.14),
+      transparent 60%
+    ),
+    radial-gradient(
+      34rem 34rem at 78% 12%,
+      rgba(47, 111, 237, 0.08),
+      transparent 64%
+    );
+  animation: civicfix-aurora 26s ease-in-out infinite alternate;
+}
+
+/* Fine topographic/civic-grid texture at very low opacity - signals a
+   municipal map without shouting. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 30%, transparent 78%);
+}
+
+::selection {
+  background: rgba(47, 111, 237, 0.35);
+  color: #f8fafc;
+}
+
+/* Keyboard users always get a visible focus ring. */
+:focus-visible {
+  outline: 2px solid var(--color-chakra-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Slim, theme-appropriate scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Keyframes -------------------------------------------------------------- */
 
 /* Scanner sweep that travels down the uploaded photo while the AI agents
    are analyzing it (used on the /report page). */
@@ -29,3 +143,99 @@
 .animate-civicfix-scan {
   animation: civicfix-scan 2.4s ease-in-out infinite;
 }
+
+/* Slow drift for the ambient tricolor glows. */
+@keyframes civicfix-aurora {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, 1.5%, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(-1.5%, -1%, 0) scale(1.03);
+  }
+}
+
+/* Pulsing "live" dot for status indicators. */
+@keyframes civicfix-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(18, 146, 79, 0.5);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(18, 146, 79, 0);
+  }
+}
+
+.animate-civicfix-pulse {
+  animation: civicfix-pulse 2.2s ease-in-out infinite;
+}
+
+/* Utility surfaces ------------------------------------------------------- */
+
+/* Layered glass surface used across cards and panels. */
+.glass {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.02)
+  );
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  backdrop-filter: blur(12px);
+}
+
+/* Gradient text - used sparingly (headline accents only). */
+.text-tricolor {
+  background-image: linear-gradient(
+    92deg,
+    var(--color-saffron-400) 0%,
+    var(--color-ivory-100) 48%,
+    var(--color-india-400) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Animated gradient border for hover states - drawn as a background,
+   revealed on hover via background-position. */
+.gradient-border {
+  position: relative;
+  background:
+    linear-gradient(var(--color-navy-900), var(--color-navy-900)) padding-box,
+    linear-gradient(
+        100deg,
+        var(--color-saffron-500),
+        var(--color-chakra-500),
+        var(--color-india-500)
+      )
+      border-box;
+  border: 1px solid transparent;
+  background-size: 100% 100%, 220% 100%;
+  background-position: 0 0, 0% 0;
+  transition: background-position 0.6s ease;
+}
+.gradient-border:hover {
+  background-position: 0 0, 100% 0;
+}
+
+/* Motion safety ----------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+  body::before {
+    animation: none !important;
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Trash2, AlertTriangle, Trees, Droplets } from "lucide-react";
 
 interface StartupSplashProps {
@@ -9,6 +9,7 @@ interface StartupSplashProps {
 }
 
 export default function StartupSplash({ onComplete }: StartupSplashProps) {
+  const reduceMotion = useReducedMotion();
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
@@ -38,14 +39,14 @@ export default function StartupSplash({ onComplete }: StartupSplashProps) {
           initial={{ opacity: 1 }}
           exit={{ opacity: 0, scale: 1.05 }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-gradient-to-b from-[#F8FAFC] to-[#ECFDF5]"
+          className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-navy-950"
         >
           {/* Animated Tricolor Ribbon */}
           <motion.div
             animate={{ x: "-50%" }}
             transition={{
-              duration: 8,
-              repeat: Infinity,
+              duration: reduceMotion ? 0 : 8,
+              repeat: reduceMotion ? 0 : Infinity,
               ease: "linear",
             }}
             className="absolute left-0 top-1/4 h-[400px] w-[200vw] opacity-90"
@@ -83,15 +84,15 @@ export default function StartupSplash({ onComplete }: StartupSplashProps) {
           {/* Content */}
           <div className="relative z-10 flex flex-col items-center">
             <motion.div
-              initial={{ opacity: 0, y: -20 }}
+              initial={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.8 }}
+              transition={{ delay: reduceMotion ? 0 : 0.3, duration: reduceMotion ? 0 : 0.8 }}
               className="mb-12 text-center"
             >
-              <h1 className="text-5xl font-extrabold tracking-tight text-[#1E40AF] drop-shadow md:text-7xl">
+              <h1 className="font-display text-6xl font-bold tracking-tight text-white drop-shadow md:text-7xl">
                 CivicFix
               </h1>
-              <p className="mt-2 text-slate-600">
+              <p className="mt-3 text-sm font-medium uppercase tracking-[0.22em] text-slate-400">
                 Hyderabad AI Civic Platform
               </p>
             </motion.div>
@@ -103,13 +104,15 @@ export default function StartupSplash({ onComplete }: StartupSplashProps) {
                 return (
                   <motion.div
                     key={item.id}
-                    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                    initial={
+                      reduceMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.8, y: 20 }
+                    }
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     transition={{
-                      delay: 0.5 + i * 0.15,
-                      duration: 0.5,
+                      delay: reduceMotion ? 0 : 0.5 + i * 0.15,
+                      duration: reduceMotion ? 0 : 0.5,
                     }}
-                    className="flex h-24 w-24 items-center justify-center rounded-2xl border border-white bg-white/70 shadow-lg backdrop-blur-md md:h-28 md:w-28"
+                    className="flex h-24 w-24 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.05] backdrop-blur-md md:h-28 md:w-28"
                   >
                     <Icon
                       className={`h-10 w-10 md:h-12 md:w-12 ${item.color}`}

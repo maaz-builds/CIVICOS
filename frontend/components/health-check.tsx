@@ -13,20 +13,20 @@ type Status =
 /** Visual styling per connection phase. */
 const INDICATORS: Record<Status["kind"], { dot: string; box: string }> = {
   idle: {
-    dot: "bg-slate-300",
-    box: "border-slate-200 bg-slate-50 text-slate-500",
+    dot: "bg-slate-400",
+    box: "border-white/10 bg-white/[0.04] text-slate-400",
   },
   loading: {
     dot: "animate-pulse bg-amber-400",
-    box: "border-amber-200 bg-amber-50 text-amber-700",
+    box: "border-amber-500/30 bg-amber-500/10 text-amber-300",
   },
   success: {
     dot: "bg-emerald-500",
-    box: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    box: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   },
   error: {
     dot: "bg-rose-500",
-    box: "border-rose-200 bg-rose-50 text-rose-600",
+    box: "border-rose-500/30 bg-rose-500/10 text-rose-300",
   },
 };
 
@@ -60,7 +60,7 @@ export default function HealthCheck() {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="glass rounded-2xl p-6">
       <div
         aria-live="polite"
         className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${indicator.box}`}
@@ -73,9 +73,9 @@ export default function HealthCheck() {
       </div>
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500">
           Calls{" "}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+          <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-300">
             {API_BASE_URL}/health
           </code>{" "}
           from the browser.
@@ -84,7 +84,7 @@ export default function HealthCheck() {
           type="button"
           onClick={handleCheck}
           disabled={busy}
-          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(37,99,235,0.35)] transition hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-chakra-400 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? "Checking..." : "Check Backend"}
         </button>

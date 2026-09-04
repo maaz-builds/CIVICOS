@@ -54,9 +54,11 @@ export default function TrackPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+    <main className="min-h-screen px-4 py-10 text-white sm:px-6">
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-4xl font-bold">Track a Complaint</h1>
+        <h1 className="font-display text-4xl font-bold tracking-tight">
+          Track a Complaint
+        </h1>
         <p className="mt-2 text-slate-400">
           Enter the CF- tracking ID you got when you reported the issue.
         </p>
@@ -67,7 +69,7 @@ export default function TrackPage() {
             value={trackingId}
             onChange={(e) => setTrackingId(e.target.value)}
             placeholder="CF-2026-XXXXXX"
-            className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 font-mono text-sm text-white placeholder-slate-500 outline-none focus:border-blue-500"
+            className="flex-1 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 font-mono text-sm text-white placeholder-slate-500 outline-none focus:border-chakra-400"
           />
           <button
             type="submit"
@@ -85,7 +87,7 @@ export default function TrackPage() {
         )}
 
         {result && (
-          <div className="mt-8 rounded-2xl bg-slate-900 p-6">
+          <div className="glass mt-8 rounded-2xl p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm text-slate-400">Tracking ID</p>

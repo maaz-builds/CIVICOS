@@ -327,9 +327,11 @@ export default function ReportPage() {
       : `${s}s`;
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+    <main className="min-h-screen px-4 py-10 text-white sm:px-6">
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-4xl font-bold">Report a Civic Issue</h1>
+        <h1 className="font-display text-4xl font-bold tracking-tight">
+          Report a Civic Issue
+        </h1>
         <p className="mt-2 text-slate-400">
           Upload a photo or video, let CivicFix AI analyze it, then save it
           with a tracking ID.
@@ -342,8 +344,8 @@ export default function ReportPage() {
           onDrop={handleDrop}
           className={`mt-8 flex h-72 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-colors ${
             dragging
-              ? "border-blue-400 bg-blue-950/40"
-              : "border-slate-700 bg-slate-900 hover:border-slate-500"
+              ? "border-chakra-400 bg-chakra-500/10"
+              : "border-white/15 bg-white/[0.03] hover:border-chakra-400/60"
           }`}
         >
           <label className="flex h-full w-full cursor-pointer items-center justify-center">

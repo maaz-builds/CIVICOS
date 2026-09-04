@@ -202,32 +202,23 @@ export default function NearbyPage() {
   }, [coords, radiusM, selectedCategories]);
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+    <main className="min-h-screen px-4 py-10 text-white sm:px-6">
       <div className="mx-auto max-w-6xl">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-4xl font-bold">🗺️ Nearby Activity</h1>
+            <h1 className="font-display text-4xl font-bold tracking-tight">
+              Nearby Activity
+            </h1>
             <p className="mt-2 text-slate-400">
               Civic complaints reported around you — see what your neighbours
               have flagged and track it to resolution.
             </p>
           </div>
-          <nav className="flex gap-4 text-sm text-slate-400">
-            <Link href="/report" className="transition hover:text-white">
-              📷 Report an issue
-            </Link>
-            <Link href="/track" className="transition hover:text-white">
-              🔎 Track
-            </Link>
-            <Link href="/" className="transition hover:text-white">
-              ← Home
-            </Link>
-          </nav>
         </header>
 
         {/* Controls */}
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <section className="glass mt-8 rounded-2xl p-5">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
             {/* Location */}
             <div className="min-w-[220px] flex-1">
@@ -360,7 +351,7 @@ export default function NearbyPage() {
 
         {/* Map + results */}
         <section className="mt-4 grid gap-6 lg:grid-cols-[1fr_380px]">
-          <div className="relative h-[420px] overflow-hidden rounded-2xl border border-slate-800 sm:h-[520px]">
+          <div className="relative h-[420px] overflow-hidden rounded-2xl border border-white/10 sm:h-[520px]">
             {coords ? (
               <NearbyMap
                 center={coords}
@@ -378,7 +369,7 @@ export default function NearbyPage() {
           {/* Result cards */}
           <aside className="max-h-[520px] overflow-y-auto pr-1 lg:order-first">
             {items.length === 0 && !loading && !error ? (
-              <div className="rounded-2xl border border-dashed border-slate-800 p-8 text-center">
+              <div className="rounded-2xl border border-dashed border-white/15 p-8 text-center">
                 <div className="text-3xl">🔍</div>
                 <p className="mt-3 text-sm text-slate-400">
                   {selectedCategories.size === 0
@@ -406,7 +397,7 @@ export default function NearbyPage() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") setFocusId(item.tracking_id);
                         }}
-                        className={`rounded-2xl border border-slate-800 bg-slate-900/60 p-4 transition hover:border-blue-600/60 ${
+                        className={`glass rounded-2xl p-4 transition hover:border-chakra-400/60 ${
                           resolved ? "opacity-70" : ""
                         } ${focusId === item.tracking_id ? "ring-1 ring-blue-500" : ""}`}
                       >
