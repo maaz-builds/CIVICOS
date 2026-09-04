@@ -1,7 +1,8 @@
 """Complaint endpoints.
 
 - POST /complaints/analyze   upload a photo -> vision analysis (AI)
-- POST /complaints           create a complaint record (Supabase)
+- POST /complaints           create a complaint record (Supabase), optionally
+                             with the original photo (Supabase Storage)
 - GET  /complaints           list recent complaints (newest first)
 - GET  /complaints/{tracking_id}  look up one complaint by its CF- ID
 
@@ -21,6 +22,7 @@ from app.agents.location_agent import LocationAgent
 from app.agents.tracking_agent import TrackingAgent
 from app.agents.vision_agent import VisionAgent
 from app.schemas.complaint_schema import ComplaintCreate
+from app.services.storage_service import StorageService
 from app.services.supabase_service import SupabaseService
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
@@ -33,6 +35,7 @@ vision = VisionAgent()
 location = LocationAgent()
 tracking = TrackingAgent()
 db = SupabaseService()
+storage = StorageService(db)
 
 
 @router.post("/analyze")
@@ -106,15 +109,74 @@ async def analyze_civic_issue(
 
 
 @router.post("", status_code=201)
-async def create_complaint(payload: ComplaintCreate):
-    """Persist a new complaint and return the stored row with its tracking ID."""
+async def create_complaint(
+    issue_type: str = Form(..., min_length=1, description="e.g. Pothole"),
+    description: str = Form("", description="Free-text description of the issue"),
+    confidence: float | None = Form(None, ge=0, le=1),
+    severity: str | None = Form(None, description="Low | Medium | High | Critical"),
+    ward: str | None = Form(None, description="Ward / zone (from the location agent)"),
+    lat: float | None = Form(None, ge=-90, le=90),
+    lng: float | None = Form(None, ge=-180, le=180),
+    department: str | None = Form(None, description="Assigned GHMC department"),
+    routing_notes: str | None = Form(None),
+    file: UploadFile | None = File(
+        None,
+        description=(
+            "Original photo - uploaded to Supabase Storage and linked via "
+            "image_url (omit to save without a photo)"
+        ),
+    ),
+):
+    """Persist a new complaint and return the stored row with its tracking ID.
+
+    Accepts **multipart form data** (matching how the frontend saves after
+    analysis): the analysis fields as form values, plus the original photo
+    as ``file``. When a photo is included it is uploaded to the public
+    Supabase Storage bucket first, and the returned row's ``image_url``
+    points at it.
+    """
+    # Same size cap as /analyze - a giant photo bloats storage + the DB row.
+    if file is not None and file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB). "
+                "Resize it and try again."
+            ),
+        )
+
     try:
         tracking_id = await tracking.create_tracking_id(complaint_id="pending")
-        record = payload.model_dump()
+
+        # Upload the photo first (if provided) so the row can link to it.
+        # StorageService raises RuntimeError with a setup hint when the
+        # bucket or credentials are missing.
+        image_url = None
+        if file is not None:
+            file_bytes = await file.read()
+            image_url = await storage.upload_image(
+                file_bytes,
+                file.filename or "photo.jpg",
+                file.content_type or "image/jpeg",
+            )
+
+        record = ComplaintCreate(
+            issue_type=issue_type,
+            description=description,
+            confidence=confidence,
+            severity=severity,
+            ward=ward,
+            lat=lat,
+            lng=lng,
+            department=department,
+            routing_notes=routing_notes,
+        ).model_dump()
         record["tracking_id"] = tracking_id
+        record["image_url"] = image_url
         return await db.insert_complaint(record)
     except RuntimeError as exc:
-        # Supabase not configured - clear setup message, not a traceback.
+        # Supabase or Storage not configured - clear setup message, not a
+        # traceback.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - surface real Supabase errors
         raise HTTPException(

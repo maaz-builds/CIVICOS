@@ -103,15 +103,20 @@ export default function ReportPage() {
     setSaving(true);
     setError("");
     try {
-      const stored = await createComplaint({
-        issue_type: result.issue_type,
-        description: result.description,
-        confidence: result.confidence,
-        severity: result.severity,
-        ward: ward.trim() || undefined,
-        lat: coords?.lat,
-        lng: coords?.lng,
-      });
+      const stored = await createComplaint(
+        {
+          issue_type: result.issue_type,
+          description: result.description,
+          confidence: result.confidence,
+          severity: result.severity,
+          ward: ward.trim() || undefined,
+          lat: coords?.lat,
+          lng: coords?.lng,
+        },
+        // Send the original photo too - the backend uploads it to Supabase
+        // Storage and links it via image_url.
+        file ?? undefined
+      );
       setSaved(stored);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -316,6 +321,14 @@ export default function ReportPage() {
                 </>
               ) : null}
             </p>
+
+            {saved.image_url && (
+              <img
+                src={saved.image_url}
+                alt="Reported issue photo"
+                className="mt-5 max-h-72 w-full rounded-xl object-cover ring-1 ring-emerald-700/50"
+              />
+            )}
 
             <button
               onClick={reset}

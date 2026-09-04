@@ -40,3 +40,26 @@ create policy "allow anon select"
     on public.complaints
     for select
     using (true);
+
+-- ---------------------------------------------------------------------------
+-- Storage: complaint photo uploads.
+-- Creates the public bucket + demo-grade policies used by StorageService.
+-- The bucket must exist BEFORE photos can be uploaded; this SQL creates it
+-- idempotently, so running the whole file again is safe.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('complaint-photos', 'complaint-photos', true)
+on conflict (id) do nothing;
+
+-- DEMO-GRADE policies: anyone with the anon key can upload and read photos
+-- in this bucket. Fine for a hackathon demo; restrict these (e.g. to
+-- authenticated users) before going to production.
+create policy "allow anon upload complaint photos"
+    on storage.objects
+    for insert
+    with check (bucket_id = 'complaint-photos');
+
+create policy "allow anon read complaint photos"
+    on storage.objects
+    for select
+    using (bucket_id = 'complaint-photos');

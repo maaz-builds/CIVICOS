@@ -133,7 +133,7 @@ run everything together with the Vercel CLI: `npx vercel dev`.
 
 1. Complaint intake: form + `POST /complaints` + tracking ID
 2. Supabase persistence (users, complaints, statuses)
-3. Image upload + storage (Supabase Storage)
+3. ~~Image upload + storage~~ ✅ (Supabase Storage, linked via `image_url`)
 4. Implement the remaining agents: location → routing → tracking
 5. Wire the LangGraph workflow (`complaint_workflow.py`) into the analyze flow
 6. User dashboards, maps, and status updates

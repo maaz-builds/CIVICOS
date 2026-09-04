@@ -18,12 +18,13 @@ openai>=1.40
 # (backend/app/workflows/complaint_workflow.py)
 langgraph>=0.2
 
-# Supabase - complaint persistence (app/services/supabase_service.py).
-# Create the table first: run backend/supabase/schema.sql in the dashboard.
+# Supabase - complaint persistence + photo storage
+# (app/services/supabase_service.py + app/services/storage_service.py).
+# The storage client ships inside this package. Create the table + the
+# complaint-photos bucket first: run backend/supabase/schema.sql in the
+# dashboard (it is idempotent).
 supabase>=2.0
 
 # Location agent - reverse geocoding via OpenStreetMap Nominatim
 # (backend/app/agents/location_agent.py)
 geopy>=2.4
-
-# NOTE: image storage (Supabase Storage) is still pending (upload milestone).

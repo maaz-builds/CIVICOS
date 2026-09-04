@@ -123,6 +123,14 @@ export default function TrackPage() {
               </div>
             )}
 
+            {result.image_url && (
+              <img
+                src={result.image_url}
+                alt={`Photo of the ${result.issue_type} reported`}
+                className="mt-5 max-h-96 w-full rounded-xl object-cover ring-1 ring-slate-700"
+              />
+            )}
+
             <p className="mt-6 text-xs text-slate-500">
               Reported {new Date(result.created_at).toLocaleString()}
             </p>

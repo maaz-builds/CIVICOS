@@ -118,14 +118,38 @@ export async function analyzeComplaintImage(
   return (await response.json()) as AnalyzeResponse;
 }
 
-/** Persist a complaint and return the stored row (with its CF- tracking ID). */
+/**
+ * Persist a complaint and return the stored row (with its CF- tracking ID).
+ *
+ * The backend's POST /complaints expects multipart form data. When a photo
+ * is passed it is uploaded to Supabase Storage and linked via image_url;
+ * without one, the complaint is saved photo-less.
+ */
 export async function createComplaint(
-  payload: ComplaintCreatePayload
+  payload: ComplaintCreatePayload,
+  file?: File
 ): Promise<StoredComplaint> {
+  const formData = new FormData();
+  if (file) formData.append("file", file);
+  formData.append("issue_type", payload.issue_type);
+  if (payload.description) formData.append("description", payload.description);
+  if (payload.confidence !== undefined) {
+    formData.append("confidence", String(payload.confidence));
+  }
+  if (payload.severity) formData.append("severity", payload.severity);
+  if (payload.ward) formData.append("ward", payload.ward);
+  if (payload.lat !== undefined) formData.append("lat", String(payload.lat));
+  if (payload.lng !== undefined) formData.append("lng", String(payload.lng));
+  if (payload.department) formData.append("department", payload.department);
+  if (payload.routing_notes) {
+    formData.append("routing_notes", payload.routing_notes);
+  }
+
+  // Do NOT set Content-Type manually: the browser adds the multipart
+  // boundary for FormData.
   const response = await fetch(`${API_BASE_URL}/complaints`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: formData,
   });
   if (!response.ok) {
     throw new Error(await errorMessage(response));

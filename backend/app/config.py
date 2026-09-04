@@ -42,6 +42,14 @@ class Settings:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
 
+    # Supabase Storage bucket for complaint photos (created by
+    # backend/supabase/schema.sql; must be a public bucket so the returned
+    # image_url is readable without auth).
+    SUPABASE_STORAGE_BUCKET: str = os.getenv(
+        "SUPABASE_STORAGE_BUCKET",
+        "complaint-photos",
+    )
+
     # Vision model served by Featherless. The default is a 72B model - slow
     # but accurate. For faster demos, switch to a smaller model, e.g.:
     #   VISION_MODEL=Qwen/Qwen2.5-VL-7B-Instruct

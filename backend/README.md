@@ -26,7 +26,7 @@ uvicorn app.main:app --reload --port 8000
 | ------ | ------------------- | -------------------------------------------------------------------- |
 | GET    | /health             | Liveness check → `{"status": "ok", "service": "civicfix-backend"}`   |
 | POST   | /complaints/analyze | Upload a photo → JSON analysis of the civic issue (needs `FEATHERLESS_API_KEY`) |
-| POST   | /complaints         | Create a complaint (JSON) → stored row incl. CF- tracking ID (Supabase) |
+| POST   | /complaints         | Create a complaint (multipart form) → stored row incl. CF- tracking ID; pass `file` to upload the photo to Supabase Storage (linked via `image_url`) |
 | GET    | /complaints         | List recent complaints, newest first (Supabase)                      |
 | GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)   |
 | GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
@@ -50,7 +50,7 @@ backend/
 │   ├── services/             # Integrations
 │   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)
 │   │   ├── supabase_service.py     # Supabase complaints (needs keys + table)
-│   │   └── storage_service.py      # photo storage (pending)
+│   │   └── storage_service.py      # photo upload → Supabase Storage → image_url
 │   ├── schemas/              # Future request/response Pydantic models
 │   │   └── complaint_schema.py
 │   └── workflows/            # LangGraph pipeline — drafted, not wired yet
@@ -80,12 +80,16 @@ chosen so the app runs without any `.env` file:
 | FEATHERLESS_API_KEY    | (empty)                                   | Featherless key for AI analysis — empty until you add it |
 | SUPABASE_URL           | (empty)                                   | Supabase project URL — required for database calls |
 | SUPABASE_ANON_KEY      | (empty)                                   | Supabase anon key — required for database calls |
+| SUPABASE_STORAGE_BUCKET | complaint-photos                          | Public Storage bucket for complaint photos (created by schema.sql) |
 
 The app boots without `FEATHERLESS_API_KEY`; `POST /complaints/analyze`
 answers **502** with a clear message until the key is set (locally in
 `backend/.env`, or as a Vercel environment variable in production).
 Similarly, database calls fail with a clear message until `SUPABASE_URL` +
 `SUPABASE_ANON_KEY` are set and `supabase/schema.sql` has been run once.
+The schema also creates the public `complaint-photos` Storage bucket and its
+demo upload/read policies — run it again (or just the storage section) when
+enabling photo uploads.
 
 ## Testing the API
 
