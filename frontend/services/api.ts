@@ -361,4 +361,51 @@ export async function updateComplaintStatus(
   }
 
   return (await response.json()) as StoredComplaint;
+}
+
+/**
+ * A stored complaint returned by the nearby scan - the server adds the
+ * great-circle distance from the viewer's position, in metres.
+ */
+export interface NearbyComplaint extends StoredComplaint {
+  distance_m: number;
+}
+
+/** Shape of the response of GET /complaints/nearby (Nearby Activity map). */
+export interface NearbyResponse {
+  center: { lat: number; lng: number };
+  radius_m: number;
+  count: number;
+  complaints: NearbyComplaint[];
+}
+
+/**
+ * Scan stored complaints within `radiusM` metres of a GPS point, nearest
+ * first (drives the Nearby Activity map).
+ *
+ * `categories` narrows results by plural display name ("Potholes",
+ * "Streetlights", "Garbage", "Water Leaks"); omit for every category.
+ * Resolved complaints are included - the map shows the full lifecycle.
+ */
+export async function fetchNearbyComplaints(
+  lat: number,
+  lng: number,
+  opts?: { radiusM?: number; categories?: string[] }
+): Promise<NearbyResponse> {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+  if (opts?.radiusM !== undefined) {
+    params.set("radius_m", String(opts.radiusM));
+  }
+  if (opts?.categories && opts.categories.length > 0) {
+    params.set("categories", opts.categories.join(","));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/complaints/nearby?${params.toString()}`
+  );
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+
+  return (await response.json()) as NearbyResponse;
 }

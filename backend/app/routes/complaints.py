@@ -9,6 +9,9 @@
                              refuses with a 409 + the existing tracking ID
                              when the same issue is already reported nearby
 - GET  /complaints           list recent complaints (newest first)
+- GET  /complaints/nearby     complaints within a radius of a GPS point,
+                             optionally filtered by category (Nearby
+                             Activity map)
 - GET  /complaints/{tracking_id}  look up one complaint by its CF- ID
 - PATCH /complaints/{tracking_id}/status  advance a complaint's lifecycle
                              status (submitted -> assigned -> in progress
@@ -25,7 +28,7 @@ import os
 import shutil
 import tempfile
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.agents.tracking_agent import TrackingAgent
@@ -354,6 +357,64 @@ async def list_complaints(limit: int = 20):
             status_code=502,
             detail=f"Could not list complaints: {exc}",
         ) from exc
+
+
+@router.get("/nearby")
+async def nearby_complaints(
+    lat: float = Query(..., ge=-90, le=90, description="Viewer's latitude (GPS fix)"),
+    lng: float = Query(..., ge=-180, le=180, description="Viewer's longitude (GPS fix)"),
+    radius_m: float = Query(
+        500.0,
+        gt=0,
+        le=50_000,
+        description=(
+            "Search radius in metres (default 500) - the map shows every "
+            "complaint inside this circle"
+        ),
+    ),
+    categories: str | None = Query(
+        None,
+        description=(
+            "Comma-separated category filters, e.g. 'Garbage,Potholes' - "
+            "omit for all categories"
+        ),
+    ),
+):
+    """List civic complaints within ``radius_m`` of a GPS point, nearest first.
+
+    Drives the citizen-facing Nearby Activity map: the frontend sends the
+    browser's live position, and every stored complaint whose coordinates
+    fall inside the radius circle comes back with its distance in metres,
+    plus its issue type, severity, status, ward, and CF- tracking ID so the
+    map popup can link straight to the /track page.
+
+    Distance is computed server-side with the haversine formula (see
+    SupabaseService.find_nearby). Pass ``categories`` (comma-separated
+    display names like ``Garbage`` / ``Potholes`` / ``Streetlights`` /
+    ``Water Leaks``) to narrow the results; resolved complaints are shown
+    so the map reflects the full lifecycle.
+    """
+    try:
+        terms = (
+            [c.strip() for c in categories.split(",") if c.strip()]
+            if categories
+            else None
+        )
+        rows = await db.find_nearby(lat, lng, radius_m, terms)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not scan nearby complaints: {exc}",
+        ) from exc
+
+    return {
+        "center": {"lat": lat, "lng": lng},
+        "radius_m": radius_m,
+        "count": len(rows),
+        "complaints": rows,
+    }
 
 
 @router.get("/{tracking_id}")

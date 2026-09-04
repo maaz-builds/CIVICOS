@@ -30,6 +30,10 @@ UNRESOLVED_STATUSES = ("submitted", "assigned", "in progress")
 # for the demo dataset.
 _DUPLICATE_SCAN_LIMIT = 500
 
+# Cap for the Nearby Activity radius scan (find_nearby). Newest rows first,
+# so the cap only ever drops very old complaints outside the demo window.
+_NEARBY_SCAN_LIMIT = 2000
+
 
 def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Great-circle distance between two coordinates, in metres."""
@@ -42,6 +46,39 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
         + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
     )
     return 2 * radius * math.asin(math.sqrt(a))
+
+
+def _normalise_label(label: str) -> str:
+    """Lowercase a category label and drop a trailing plural 's'.
+
+    The Nearby Activity UI filters by plural display names ("Potholes",
+    "Streetlights", "Water Leaks") while the DB stores singular vision
+    labels ("Pothole", "Broken Streetlight", "Water Leakage") - this puts
+    both sides on the same footing for substring matching.
+    """
+    cleaned = (label or "").strip().lower()
+    if len(cleaned) > 1 and cleaned.endswith("s") and not cleaned.endswith("ss"):
+        cleaned = cleaned[:-1]
+    return cleaned
+
+
+def _category_matches(
+    issue_type: str | None,
+    categories: list[str] | None,
+) -> bool:
+    """True when a complaint's issue type matches the selected filter set.
+
+    With no categories selected every complaint matches. Otherwise the
+    normalised filter term must appear inside the issue type (or vice
+    versa): "streetlight" finds "Broken Streetlight", "water leak" finds
+    "Water Leakage", "pothole" finds "Pothole".
+    """
+    if not categories:
+        return True
+    if not issue_type:
+        return False
+    stored = _normalise_label(issue_type)
+    return any(stored in _normalise_label(c) or _normalise_label(c) in stored for c in categories)
 
 
 class SupabaseService:
@@ -177,3 +214,48 @@ class SupabaseService:
             ):
                 return row
         return None
+
+    async def find_nearby(
+        self,
+        lat: float,
+        lng: float,
+        radius_m: float = 500.0,
+        categories: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return stored complaints within ``radius_m`` of a point.
+
+        Powers the citizen-facing Nearby Activity map. Rows are pulled
+        newest-first (capped at _NEARBY_SCAN_LIMIT) and the great-circle
+        distance is computed in Python, mirroring find_duplicate_complaint -
+        no PostGIS required. Each returned row gains a ``distance_m`` field
+        and the list is sorted nearest first. Rules:
+
+        * complaints without coordinates are skipped - their distance is
+          unknown;
+        * an optional category filter (plural display names like
+          "Potholes") narrows the results via _category_matches; None/[]
+          returns every issue type;
+        * resolved complaints are included - the map shows the full
+          lifecycle, with status rendered by the client.
+        """
+        response = (
+            self.client.table(self.TABLE)
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(_NEARBY_SCAN_LIMIT)
+            .execute()
+        )
+        matches: list[dict[str, Any]] = []
+        for row in response.data or []:
+            row_lat, row_lng = row.get("lat"), row.get("lng")
+            if row_lat is None or row_lng is None:
+                continue
+            if not _category_matches(row.get("issue_type"), categories):
+                continue
+            distance = _haversine_m(lat, lng, float(row_lat), float(row_lng))
+            if distance <= radius_m:
+                item = dict(row)
+                item["distance_m"] = round(distance, 1)
+                matches.append(item)
+        matches.sort(key=lambda item: item["distance_m"])
+        return matches
