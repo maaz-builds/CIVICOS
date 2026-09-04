@@ -37,10 +37,11 @@ from app.workflows.complaint_workflow import get_complaint_workflow
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
 # Reject huge uploads early: a giant image means a giant base64 payload and
-# far more vision tokens, which slows the model call dramatically. 30 MB
-# covers both photos and short phone videos (the frontend enforces the same
-# cap before uploading).
-MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB
+# far more vision tokens, which slows the model call dramatically. The cap
+# matches Vercel's serverless request-body limit (~4.5 MB) with headroom, so
+# uploads work on the deployed site too (the frontend enforces the same cap
+# before uploading).
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024  # 4 MB
 
 # MIME types accepted by POST /complaints/analyze. Anything else gets a
 # friendly 415 instead of a confusing model error.
@@ -87,7 +88,7 @@ async def analyze_civic_issue(
 ):
     """Upload a photo or video and get the vision agent's analysis.
 
-    Accepts images (jpg/png/webp) and videos (mp4/webm/mov) up to 30 MB.
+    Accepts images (jpg/png/webp) and videos (mp4/webm/mov) up to 4 MB.
     Videos are sampled into a few evenly spaced frames by the vision agent
     and the per-frame results are aggregated into one unified analysis -
     the response shape is identical for both media types.

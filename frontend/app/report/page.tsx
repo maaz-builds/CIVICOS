@@ -14,8 +14,10 @@ import {
   type StoredComplaint,
 } from "@/services/api";
 
-// Same cap as the backend (POST /complaints/analyze): 30 MB.
-const MAX_MEDIA_BYTES = 30 * 1024 * 1024;
+// Same cap as the backend (POST /complaints/analyze): 4 MB. This also fits
+// Vercel's ~4.5 MB serverless request-body limit, so uploads work when
+// deployed (bigger bodies get a platform 413 before our code runs).
+const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
 // The 72B vision model takes 30-60 s on one image; a video is sampled into
 // 3 frames, so allow more time for video uploads.
@@ -163,7 +165,7 @@ export default function ReportPage() {
       return;
     }
 
-    // Size check - matches the backend's 30 MB cap.
+    // Size check - matches the backend's 4 MB cap.
     if (candidate.size > MAX_MEDIA_BYTES) {
       setFile(null);
       setPreview("");
@@ -444,7 +446,7 @@ export default function ReportPage() {
                   {dragging ? "Drop it here!" : "Click or drag & drop"}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Image (JPG, PNG, WEBP) or video (MP4, MOV, WEBM) · up to 30 MB
+                  Image (JPG, PNG, WEBP) or video (MP4, MOV, WEBM) · up to 4 MB
                 </p>
               </div>
             )}
