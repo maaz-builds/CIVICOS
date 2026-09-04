@@ -44,6 +44,23 @@ export interface AnalysisResult {
   description: string;
 }
 
+/** Location enrichment produced by the Location Agent (POST /complaints/analyze). */
+export interface LocationResult {
+  lat: number;
+  lng: number;
+  exact_address: string;
+  area_name: string;
+  ward: string;
+  infrastructure_type: string;
+}
+
+/** Full response of POST /complaints/analyze. */
+export interface AnalyzeResponse {
+  success: boolean;
+  analysis: AnalysisResult;
+  location: LocationResult | null;
+}
+
 /** Payload accepted by POST /complaints (see ComplaintCreate on the backend). */
 export interface ComplaintCreatePayload {
   issue_type: string;
@@ -77,25 +94,28 @@ async function errorMessage(response: Response): Promise<string> {
   return `HTTP ${response.status} ${response.statusText}`;
 }
 
-/** Upload a photo and return the vision agent's analysis. */
+/** Upload a photo and return the vision agent's analysis (+ optional location). */
 export async function analyzeComplaintImage(
   file: File,
-  signal?: AbortSignal
-): Promise<AnalysisResult> {
+  opts?: { lat?: number; lng?: number; signal?: AbortSignal }
+): Promise<AnalyzeResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (opts?.lat !== undefined && opts?.lng !== undefined) {
+    formData.append("lat", String(opts.lat));
+    formData.append("lng", String(opts.lng));
+  }
 
   const response = await fetch(`${API_BASE_URL}/complaints/analyze`, {
     method: "POST",
     body: formData,
-    signal,
+    signal: opts?.signal,
   });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
 
-  const data = await response.json();
-  return data.analysis as AnalysisResult;
+  return (await response.json()) as AnalyzeResponse;
 }
 
 /** Persist a complaint and return the stored row (with its CF- tracking ID). */

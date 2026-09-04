@@ -50,5 +50,12 @@ class Settings:
         "Qwen/Qwen2.5-VL-72B-Instruct",
     )
 
+    # Optional chat model used by the Location Agent to refine the
+    # address -> GHMC ward mapping. Leave empty to use the built-in
+    # address parser (works without any model). If you enable it, pick an
+    # ungated Featherless instruct model, e.g.:
+    #   WARD_MODEL=Qwen/Qwen2.5-7B-Instruct
+    WARD_MODEL: str = os.getenv("WARD_MODEL", "")
+
 
 settings = Settings()

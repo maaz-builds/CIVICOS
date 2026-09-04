@@ -15,8 +15,9 @@ import os
 import shutil
 import tempfile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from app.agents.location_agent import LocationAgent
 from app.agents.tracking_agent import TrackingAgent
 from app.agents.vision_agent import VisionAgent
 from app.schemas.complaint_schema import ComplaintCreate
@@ -29,13 +30,24 @@ router = APIRouter(prefix="/complaints", tags=["Complaints"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 vision = VisionAgent()
+location = LocationAgent()
 tracking = TrackingAgent()
 db = SupabaseService()
 
 
 @router.post("/analyze")
-async def analyze_civic_issue(file: UploadFile = File(...)):
-    """Upload a photo and get the vision agent's analysis of the issue."""
+async def analyze_civic_issue(
+    file: UploadFile = File(...),
+    lat: float | None = Form(None, description="GPS latitude (optional)"),
+    lng: float | None = Form(None, description="GPS longitude (optional)"),
+):
+    """Upload a photo and get the vision agent's analysis of the issue.
+
+    Optional lat/lng come from the browser's geolocation on the /report
+    page; when present, the location agent reverse-geocodes them, maps the
+    address to a GHMC ward, and attaches that to the response. Location is
+    best-effort: if it fails, the analysis is still returned.
+    """
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
@@ -75,7 +87,22 @@ async def analyze_civic_issue(file: UploadFile = File(...)):
             except OSError:
                 pass
 
-    return {"success": True, "analysis": analysis}
+    # 2b. LOCATION (best-effort): only when the caller supplied real coords.
+    #     A hiccup here must not fail the vision analysis - the photo was
+    #     already understood, and location can be added at save time later.
+    location_data = None
+    if lat is not None and lng is not None:
+        try:
+            location_data = await location.extract_location(
+                description=analysis.get("description", ""),
+                lat=lat,
+                lng=lng,
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort enrichment
+            print(f"Location agent failed: {exc}")
+            location_data = None
+
+    return {"success": True, "analysis": analysis, "location": location_data}
 
 
 @router.post("", status_code=201)

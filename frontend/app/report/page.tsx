@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   analyzeComplaintImage,
   createComplaint,
   type AnalysisResult,
+  type LocationResult,
   type StoredComplaint,
 } from "@/services/api";
 
@@ -15,9 +16,35 @@ export default function ReportPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [locationResult, setLocationResult] = useState<LocationResult | null>(null);
   const [saved, setSaved] = useState<StoredComplaint | null>(null);
   const [error, setError] = useState("");
+
+  // Location: coords come from the browser; ward/area are editable.
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationNote, setLocationNote] = useState("");
+  const [ward, setWard] = useState("");
+  const [area, setArea] = useState("");
+
   const abortRef = useRef<AbortController | null>(null);
+
+  // Try to capture the user's location once when the page loads.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationNote("Location is unavailable in this browser — enter the area manually.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationNote("Using your current location for the report.");
+      },
+      () => {
+        setLocationNote("Location permission denied — enter the area manually.");
+      },
+      { timeout: 8000, maximumAge: 300_000 }
+    );
+  }, []);
 
   const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     abortRef.current?.abort();
@@ -27,6 +54,9 @@ export default function ReportPage() {
     setFile(img);
     setPreview(URL.createObjectURL(img));
     setResult(null);
+    setLocationResult(null);
+    setWard("");
+    setArea("");
     setSaved(null);
     setError("");
   };
@@ -42,8 +72,18 @@ export default function ReportPage() {
     abortRef.current = controller;
     const timer = setTimeout(() => controller.abort(), 150_000);
     try {
-      const analysis = await analyzeComplaintImage(file, controller.signal);
-      setResult(analysis);
+      const data = await analyzeComplaintImage(file, {
+        lat: coords?.lat,
+        lng: coords?.lng,
+        signal: controller.signal,
+      });
+      setResult(data.analysis);
+      // Location enrichment is best-effort; prefill the ward from it.
+      setLocationResult(data.location);
+      if (data.location) {
+        setWard(data.location.ward);
+        setArea(data.location.area_name);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Analysis timed out after 2.5 minutes. Try a smaller image.");
@@ -68,6 +108,9 @@ export default function ReportPage() {
         description: result.description,
         confidence: result.confidence,
         severity: result.severity,
+        ward: ward.trim() || undefined,
+        lat: coords?.lat,
+        lng: coords?.lng,
       });
       setSaved(stored);
     } catch (err) {
@@ -82,13 +125,19 @@ export default function ReportPage() {
     setFile(null);
     setPreview("");
     setResult(null);
+    setLocationResult(null);
+    setWard("");
+    setArea("");
+    setCoords(null);
     setSaved(null);
     setError("");
   };
 
   // The vision prompt returns confidence on a 0..1 scale.
   const confidencePct = result
-    ? Math.round(result.confidence <= 1 ? result.confidence * 100 : result.confidence)
+    ? Math.round(
+        result.confidence <= 1 ? result.confidence * 100 : result.confidence
+      )
     : 0;
 
   return (
@@ -122,6 +171,18 @@ export default function ReportPage() {
             </div>
           )}
         </label>
+
+        {/* Location status */}
+        {locationNote && !saved && (
+          <p className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+            <span>📍</span> {locationNote}
+            {coords && (
+              <span className="font-mono text-slate-600">
+                ({coords.lat.toFixed(4)}, {coords.lng.toFixed(4)})
+              </span>
+            )}
+          </p>
+        )}
 
         {/* Analyze */}
         <button
@@ -173,6 +234,48 @@ export default function ReportPage() {
               </div>
             </div>
 
+            {/* Location (from the Location Agent, editable) */}
+            <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-slate-400">Location</p>
+              {locationResult ? (
+                <>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Detected area: <span className="font-semibold">{area || locationResult.area_name}</span>
+                    {" · "}{locationResult.ward}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-slate-500">
+                    {locationResult.exact_address}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500">
+                  {coords
+                    ? "Location lookup didn't run — enter the ward manually below."
+                    : "No GPS available — enter the ward manually below."}
+                </p>
+              )}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs text-slate-500">Ward / Zone</span>
+                  <input
+                    value={ward}
+                    onChange={(e) => setWard(e.target.value)}
+                    placeholder="e.g. Secunderabad"
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Area</span>
+                  <input
+                    value={area}
+                    onChange={(e) => setArea(e.target.value)}
+                    placeholder="e.g. Begumpet"
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                </label>
+              </div>
+            </div>
+
             <button
               onClick={save}
               disabled={saving}
@@ -198,9 +301,20 @@ export default function ReportPage() {
             </p>
 
             <p className="mt-2 text-sm text-slate-400">
-              Status: <span className="font-semibold text-emerald-300">{saved.status}</span>
+              Status:{" "}
+              <span className="font-semibold text-emerald-300">
+                {saved.status}
+              </span>
               {" · "}Reported:{" "}
               {new Date(saved.created_at).toLocaleDateString()}
+              {saved.ward ? (
+                <>
+                  {" · "}
+                  <span className="font-semibold text-slate-300">
+                    {saved.ward}
+                  </span>
+                </>
+              ) : null}
             </p>
 
             <button

@@ -4,10 +4,10 @@ Drafted pipeline (not wired to an endpoint yet):
 
     vision -> location -> routing -> complaint -> tracking
 
-The location / routing / complaint / tracking agents still raise
-NotImplementedError, so the graph only becomes runnable once those agents
-are implemented. The node calls below match each agent's declared
-interface so no further changes are needed when that happens.
+Vision, location, and tracking IDs are implemented. The routing and
+complaint agents still raise NotImplementedError, so the graph only
+becomes runnable once those two land. The node calls below match each
+agent's declared interface, so no further changes are needed then.
 """
 
 from typing import TypedDict
