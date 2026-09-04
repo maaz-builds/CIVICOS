@@ -114,6 +114,31 @@ export type ComplaintStatus =
   | "in progress"
   | "resolved";
 
+/** Shape of the existing complaint attached to a 409 duplicate response. */
+export interface DuplicateComplaint {
+  tracking_id: string;
+  issue_type: string;
+  severity: string | null;
+  status: string | null;
+  ward: string | null;
+  created_at: string | null;
+}
+
+/**
+ * Thrown by createComplaint when the backend refuses the report (HTTP 409):
+ * the same issue type already has an open complaint within 50 m, so no new
+ * record was created. `duplicate` carries the existing tracking ID.
+ */
+export class DuplicateComplaintError extends Error {
+  readonly duplicate: DuplicateComplaint;
+
+  constructor(message: string, duplicate: DuplicateComplaint) {
+    super(message);
+    this.name = "DuplicateComplaintError";
+    this.duplicate = duplicate;
+  }
+}
+
 /** Extract a readable message from a failed API response. */
 async function errorMessage(response: Response): Promise<string> {
   try {
@@ -265,6 +290,24 @@ export async function createComplaint(
     body: formData,
   });
   if (!response.ok) {
+    // 409 = duplicate detected: the body's `detail` object carries the
+    // existing complaint's tracking ID so the UI can point the user at it
+    // instead of at a generic "HTTP 409" error.
+    if (response.status === 409) {
+      let detail: { message?: string; duplicate?: DuplicateComplaint } | undefined;
+      try {
+        const body = await response.json();
+        detail = body?.detail as
+          | { message?: string; duplicate?: DuplicateComplaint }
+          | undefined;
+      } catch {
+        // Body was not JSON (or lacked detail) - fall through to the
+        // generic message below.
+      }
+      if (detail?.message && detail.duplicate) {
+        throw new DuplicateComplaintError(detail.message, detail.duplicate);
+      }
+    }
     throw new Error(await errorMessage(response));
   }
 

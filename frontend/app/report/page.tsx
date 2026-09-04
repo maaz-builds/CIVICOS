@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import {
   analyzeComplaintImage,
   createComplaint,
+  DuplicateComplaintError,
   type AnalysisResult,
   type AnalyzeStage,
   type LocationResult,
@@ -69,6 +71,9 @@ export default function ReportPage() {
   const [locationResult, setLocationResult] = useState<LocationResult | null>(null);
   const [routingResult, setRoutingResult] = useState<RoutingResult | null>(null);
   const [saved, setSaved] = useState<StoredComplaint | null>(null);
+  // Set when the backend refuses to save (HTTP 409): the same issue already
+  // has an open report nearby, so no new record was created.
+  const [duplicate, setDuplicate] = useState<DuplicateComplaintError | null>(null);
   const [error, setError] = useState("");
 
   // Location: coords come from the browser; ward/area are editable.
@@ -180,6 +185,7 @@ export default function ReportPage() {
     setWard("");
     setArea("");
     setSaved(null);
+    setDuplicate(null);
     setError("");
   };
 
@@ -209,6 +215,7 @@ export default function ReportPage() {
 
     setAnalyzing(true);
     setError("");
+    setDuplicate(null);
     setStage("starting");
     canceledRef.current = false;
     // Images need ~2.5 min; videos (3 sampled frames) need longer.
@@ -274,6 +281,11 @@ export default function ReportPage() {
       );
       setSaved(stored);
     } catch (err) {
+      if (err instanceof DuplicateComplaintError) {
+        // Friendly "already reported" panel replaces the generic error box.
+        setDuplicate(err);
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
@@ -295,6 +307,7 @@ export default function ReportPage() {
     setArea("");
     setCoords(null);
     setSaved(null);
+    setDuplicate(null);
     setError("");
   };
 
@@ -488,8 +501,57 @@ export default function ReportPage() {
           </div>
         )}
 
+        {/* Duplicate detected - the backend refused to create a second record */}
+        {duplicate && (
+          <div className="mt-8 rounded-2xl bg-amber-950/50 p-6 ring-1 ring-amber-600">
+            <h2 className="text-xl font-bold text-amber-300">
+              🔁 {duplicate.message}
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              An open report of this issue already exists within 50 m of this
+              location, so nothing new was created and your media was not
+              uploaded. Follow the existing report instead:
+            </p>
+            <p className="mt-4 font-mono text-3xl font-bold tracking-wider text-amber-300">
+              {duplicate.duplicate.tracking_id}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-400">
+              <span>{duplicate.duplicate.issue_type}</span>
+              {duplicate.duplicate.severity && (
+                <span>Severity: {duplicate.duplicate.severity}</span>
+              )}
+              <span className="capitalize">
+                Status: {duplicate.duplicate.status}
+              </span>
+              {duplicate.duplicate.ward && (
+                <span>{duplicate.duplicate.ward}</span>
+              )}
+              {duplicate.duplicate.created_at && (
+                <span>
+                  Reported{" "}
+                  {new Date(duplicate.duplicate.created_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href={`/track?tracking=${encodeURIComponent(duplicate.duplicate.tracking_id)}`}
+                className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold hover:bg-blue-500"
+              >
+                Track the existing complaint
+              </Link>
+              <button
+                onClick={reset}
+                className="rounded-xl border border-amber-700 px-6 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-900/40"
+              >
+                Report a different issue
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Analysis result */}
-        {result && !saved && (
+        {result && !saved && !duplicate && (
           <div className="mt-8 rounded-2xl bg-slate-900 p-6">
             <h2 className="mb-4 text-2xl font-bold">AI Analysis</h2>
 

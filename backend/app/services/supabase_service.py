@@ -9,11 +9,39 @@ Setup once per Supabase project:
   2. Copy SUPABASE_URL + SUPABASE_ANON_KEY from Project Settings -> API.
 """
 
+import math
 from typing import Any
 
 from supabase import Client, create_client
 
 from app.config import settings
+
+# A report is treated as a duplicate when the SAME issue type is still open
+# within this radius of its GPS position - re-reporting a live problem just
+# fragments the record, so the caller points the citizen at the existing one.
+DUPLICATE_RADIUS_M = 50.0
+
+# Lifecycle statuses that count as "open". A resolved complaint is NOT a
+# duplicate: the issue was fixed, so a fresh report is legitimate.
+UNRESOLVED_STATUSES = ("submitted", "assigned", "in progress")
+
+# The proximity scan runs in Python (see find_duplicate_complaint) rather
+# than PostGIS, so cap how many rows per issue type we pull back - ample
+# for the demo dataset.
+_DUPLICATE_SCAN_LIMIT = 500
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two coordinates, in metres."""
+    radius = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lng2 - lng1)
+    a = (
+        math.sin(d_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    )
+    return 2 * radius * math.asin(math.sqrt(a))
 
 
 class SupabaseService:
@@ -101,3 +129,51 @@ class SupabaseService:
         )
         rows = response.data or []
         return rows[0] if rows else None
+
+    async def find_duplicate_complaint(
+        self,
+        issue_type: str,
+        lat: float | None,
+        lng: float | None,
+    ) -> dict[str, Any] | None:
+        """Return the most recent OPEN complaint of the same type within 50 m.
+
+        Called before a new complaint is inserted: when the same issue_type
+        already has an unresolved complaint within DUPLICATE_RADIUS_M, the
+        caller refuses to create a second record and returns the existing
+        tracking ID instead. Matching rules:
+
+        * issue type is compared case-insensitively (the vision agent's
+          categories are stable, e.g. "Pothole");
+        * complaints without coordinates can never match - their distance
+          to the new report is unknown;
+        * resolved complaints are skipped - the issue was already fixed.
+
+        Returns the newest matching row, or None when no duplicate exists.
+        """
+        # Without a GPS fix for the new report, proximity cannot be judged -
+        # skip the check entirely rather than risk a false positive.
+        if not issue_type or lat is None or lng is None:
+            return None
+        response = (
+            self.client.table(self.TABLE)
+            .select("*")
+            .ilike("issue_type", issue_type.strip())
+            .in_("status", list(UNRESOLVED_STATUSES))
+            .order("created_at", desc=True)
+            .limit(_DUPLICATE_SCAN_LIMIT)
+            .execute()
+        )
+        # Newest first: when several open reports of this type exist, match
+        # the most recent one within radius - the one a citizen most likely
+        # re-ran into.
+        for row in response.data or []:
+            row_lat, row_lng = row.get("lat"), row.get("lng")
+            if row_lat is None or row_lng is None:
+                continue
+            if (
+                _haversine_m(lat, lng, float(row_lat), float(row_lng))
+                <= DUPLICATE_RADIUS_M
+            ):
+                return row
+        return None

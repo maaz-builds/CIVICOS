@@ -5,7 +5,9 @@
                              Videos are sampled into frames by the vision
                              agent and aggregated into one analysis.
 - POST /complaints           create a complaint record (Supabase), optionally
-                             with the original photo (Supabase Storage)
+                             with the original photo (Supabase Storage);
+                             refuses with a 409 + the existing tracking ID
+                             when the same issue is already reported nearby
 - GET  /complaints           list recent complaints (newest first)
 - GET  /complaints/{tracking_id}  look up one complaint by its CF- ID
 - PATCH /complaints/{tracking_id}/status  advance a complaint's lifecycle
@@ -247,6 +249,12 @@ async def create_complaint(
     as ``file``. When a photo is included it is uploaded to the public
     Supabase Storage bucket first, and the returned row's ``image_url``
     points at it.
+
+    Before anything is created the report is checked for duplicates: if the
+    same issue type already has an OPEN complaint within 50 m of the given
+    coordinates, a ``409 Conflict`` is returned (detail carries the existing
+    tracking ID + a message) and no record, tracking ID, or upload is made.
+    Reports without a GPS fix skip the check - proximity cannot be judged.
     """
     # Same size cap as /analyze - a giant photo bloats storage + the DB row.
     if file is not None and file.size is not None and file.size > MAX_UPLOAD_BYTES:
@@ -259,6 +267,48 @@ async def create_complaint(
         )
 
     try:
+        # Validate the full record first (Pydantic), so malformed AI output
+        # never uploads media or mints a tracking ID for a row that cannot
+        # exist.
+        record = ComplaintCreate(
+            issue_type=issue_type,
+            description=description,
+            confidence=confidence,
+            severity=severity,
+            ward=ward,
+            lat=lat,
+            lng=lng,
+            department=department,
+            routing_notes=routing_notes,
+        ).model_dump()
+
+        # Duplicate detection: before minting an ID or uploading media, check
+        # whether this issue was already reported. Same issue type + within
+        # 50 m + still open (unresolved) => refuse the second record and hand
+        # the citizen the existing tracking ID so they can follow that
+        # complaint instead of fragmenting the report. Skipped when the
+        # report has no GPS fix (find_duplicate_complaint returns None).
+        duplicate = await db.find_duplicate_complaint(
+            issue_type=issue_type,
+            lat=lat,
+            lng=lng,
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This issue has already been reported nearby.",
+                    "duplicate": {
+                        "tracking_id": duplicate.get("tracking_id"),
+                        "issue_type": duplicate.get("issue_type"),
+                        "severity": duplicate.get("severity"),
+                        "status": duplicate.get("status"),
+                        "ward": duplicate.get("ward"),
+                        "created_at": duplicate.get("created_at"),
+                    },
+                },
+            )
+
         tracking_id = await tracking.create_tracking_id(complaint_id="pending")
 
         # Upload the photo first (if provided) so the row can link to it.
@@ -273,20 +323,13 @@ async def create_complaint(
                 file.content_type or "image/jpeg",
             )
 
-        record = ComplaintCreate(
-            issue_type=issue_type,
-            description=description,
-            confidence=confidence,
-            severity=severity,
-            ward=ward,
-            lat=lat,
-            lng=lng,
-            department=department,
-            routing_notes=routing_notes,
-        ).model_dump()
         record["tracking_id"] = tracking_id
         record["image_url"] = image_url
         return await db.insert_complaint(record)
+    except HTTPException:
+        # A deliberate refusal (the 409 duplicate above) must pass through
+        # untouched - not be rewritten into a 502 by the generic handler.
+        raise
     except RuntimeError as exc:
         # Supabase or Storage not configured - clear setup message, not a
         # traceback.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getComplaintByTrackingId,
@@ -24,11 +24,8 @@ export default function TrackPage() {
   const [result, setResult] = useState<StoredComplaint | null>(null);
   const [error, setError] = useState("");
 
-  const track = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const id = trackingId.trim();
-    if (!id) return;
-
+  const lookup = async (id: string) => {
+    if (!id.trim()) return;
     setLoading(true);
     setError("");
     setResult(null);
@@ -40,6 +37,21 @@ export default function TrackPage() {
       setLoading(false);
     }
   };
+
+  const track = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await lookup(trackingId.trim());
+  };
+
+  // When arriving from the report page's duplicate notice (?tracking=CF-…),
+  // look the existing complaint up straight away so the citizen doesn't have
+  // to type the ID again.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("tracking");
+    if (id) void lookup(id);
+    // Intentionally runs once on mount - no state participates in the lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
