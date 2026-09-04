@@ -2,6 +2,30 @@
 @import "tailwindcss";
 
 /*
-  Global custom styles (CSS variables, fonts, keyframes, ...) can be added
-  here later. Keep per-component styling inside the components instead.
+  Global custom styles (CSS variables, fonts, keyframes, ...). Keep
+  per-component styling inside the components instead - these are only the
+  keyframe animations that Tailwind's defaults do not ship.
 */
+
+/* Scanner sweep that travels down the uploaded photo while the AI agents
+   are analyzing it (used on the /report page). */
+@keyframes civicfix-scan {
+  0% {
+    top: -80px;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+.animate-civicfix-scan {
+  animation: civicfix-scan 2.4s ease-in-out infinite;
+}

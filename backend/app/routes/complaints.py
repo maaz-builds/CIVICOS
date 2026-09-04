@@ -1,7 +1,7 @@
 """Complaint endpoints.
 
-- POST /complaints/analyze   photo -> LangGraph pipeline: vision analysis
-                             (AI) -> location -> routing
+- POST /complaints/analyze   photo -> LangGraph pipeline (vision ->
+                             location -> routing), streamed as SSE events
 - POST /complaints           create a complaint record (Supabase), optionally
                              with the original photo (Supabase Storage)
 - GET  /complaints           list recent complaints (newest first)
@@ -16,11 +16,13 @@ it is required, because the serverless filesystem is read-only except for
 the /tmp area.
 """
 
+import json
 import os
 import shutil
 import tempfile
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 from app.agents.tracking_agent import TrackingAgent
 from app.schemas.complaint_schema import ComplaintCreate, StatusUpdate
@@ -73,54 +75,97 @@ async def analyze_civic_issue(
             tmp_path = buffer.name
             shutil.copyfileobj(file.file, buffer)
 
-        # Run the LangGraph pipeline: vision -> location -> routing.
-        # Vision is required and raises on failure (mapped below); the
-        # location and routing nodes are best-effort and swallow their own
-        # errors inside the graph, exactly like the old inline code.
-        result = await get_complaint_workflow().ainvoke(
-            {
-                "image_path": tmp_path,
-                "content_type": file.content_type or "image/jpeg",
-                "lat": lat,
-                "lng": lng,
-                "mode": "analyze",
-            }
+        # Run the LangGraph pipeline (vision -> location -> routing) as a
+        # Server-Sent Events stream so the client can show live stage text:
+        # a "stage" event fires as each agent COMPLETES (so the next stage
+        # is the one now running), then a "done" event carries the full
+        # JSON. If a proxy buffers the whole response, the client still
+        # works: it receives every event at once and resolves on "done".
+        def sse(event: str, data: dict) -> str:
+            return (
+                f"event: {event}\n"
+                f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            )
+
+        async def event_stream():
+            state: dict = {}
+            try:
+                # The first real stage is the vision agent - it is the
+                # slowest (30-60 s on a real image), so announce it first.
+                yield sse("stage", {"stage": "vision"})
+                async for update in get_complaint_workflow().astream(
+                    {
+                        "image_path": tmp_path,
+                        "content_type": file.content_type or "image/jpeg",
+                        "lat": lat,
+                        "lng": lng,
+                        "mode": "analyze",
+                    },
+                    stream_mode="updates",
+                ):
+                    for node_name, payload in update.items():
+                        if isinstance(payload, dict):
+                            state.update(payload)
+                        # Each node yields when it finishes, so the stage
+                        # event announces the NEXT agent as the active one.
+                        if node_name == "vision":
+                            yield sse("stage", {"stage": "location"})
+                        elif node_name == "location":
+                            yield sse("stage", {"stage": "routing"})
+                        # "routing" is the last node in analyze mode.
+
+                errors = state.get("errors") or {}
+                if errors:
+                    print(f"Workflow best-effort errors: {errors}")
+                yield sse(
+                    "done",
+                    {
+                        "success": True,
+                        "analysis": state.get("vision"),
+                        "location": state.get("location"),
+                        "routing": state.get("routing"),
+                    },
+                )
+            except Exception as exc:
+                # AI providers fail for many reasons (missing key, quota,
+                # bad model output) - a clean error event mirrors the old
+                # 502/503 semantics (the stream status is already 200).
+                lowered = str(exc).lower()
+                if "capacity" in lowered or "overloaded" in lowered:
+                    message = (
+                        "The AI analysis service is currently at capacity. "
+                        "Please wait a minute and try again."
+                    )
+                else:
+                    message = f"AI analysis failed: {exc}"
+                yield sse("error", {"message": message})
+            finally:
+                if tmp_path is not None:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
-        analysis = result.get("vision")
-        location_data = result.get("location")
-        routing_data = result.get("routing")
-        errors = result.get("errors") or {}
-        if errors:
-            print(f"Workflow best-effort errors: {errors}")
-    except Exception as exc:
-        # AI providers fail for many reasons (missing key, quota, bad
-        # model output) - surface a clean error instead of a traceback.
-        # Heavy congestion gets a 503 with a human message.
-        if "capacity" in str(exc).lower() or "overloaded" in str(exc).lower():
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "The AI analysis service is currently at capacity. "
-                    "Please wait a minute and try again."
-                ),
-            ) from exc
-        raise HTTPException(
-            status_code=502,
-            detail=f"AI analysis failed: {exc}",
-        ) from exc
-    finally:
+    except Exception:
+        # A failure above (realistically only the upload write) means the
+        # request never became a stream - clean up and re-raise. Once the
+        # response streams, all failures are handled inside event_stream(),
+        # which also removes tmp_path in its finally block.
         if tmp_path is not None:
             try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-
-    return {
-        "success": True,
-        "analysis": analysis,
-        "location": location_data,
-        "routing": routing_data,
-    }
+        raise
 
 
 @router.post("", status_code=201)

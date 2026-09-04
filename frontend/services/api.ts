@@ -78,6 +78,12 @@ export interface AnalyzeResponse {
   routing: RoutingResult | null;
 }
 
+/**
+ * Stage of the LangGraph pipeline, announced via SSE as each agent runs:
+ * the backend emits these in order - vision -> location -> routing.
+ */
+export type AnalyzeStage = "starting" | "vision" | "location" | "routing";
+
 /** Payload accepted by POST /complaints (see ComplaintCreate on the backend). */
 export interface ComplaintCreatePayload {
   issue_type: string;
@@ -119,10 +125,23 @@ async function errorMessage(response: Response): Promise<string> {
   return `HTTP ${response.status} ${response.statusText}`;
 }
 
-/** Upload a photo and return the vision agent's analysis (+ optional location). */
+/**
+ * Upload a photo and analyze it, streaming live pipeline-stage updates.
+ *
+ * The backend answers with Server-Sent Events: a `stage` event fires as
+ * each LangGraph agent starts (vision -> location -> routing) - delivered
+ * through `opts.onStage` - then a `done` event resolves with the full
+ * response. Falls back to plain JSON when a proxy buffers the stream, so
+ * this also works behind buffering infrastructure.
+ */
 export async function analyzeComplaintImage(
   file: File,
-  opts?: { lat?: number; lng?: number; signal?: AbortSignal }
+  opts?: {
+    lat?: number;
+    lng?: number;
+    signal?: AbortSignal;
+    onStage?: (stage: AnalyzeStage) => void;
+  }
 ): Promise<AnalyzeResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -140,7 +159,74 @@ export async function analyzeComplaintImage(
     throw new Error(await errorMessage(response));
   }
 
-  return (await response.json()) as AnalyzeResponse;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    // Non-streaming fallback (buffering proxy or a mock server).
+    return (await response.json()) as AnalyzeResponse;
+  }
+  return readAnalyzeStream(response, opts?.onStage);
+}
+
+/** Parse the SSE analyze response: stage events + one final `done`/`error`. */
+async function readAnalyzeStream(
+  response: Response,
+  onStage?: (stage: AnalyzeStage) => void
+): Promise<AnalyzeResponse> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Streaming is not supported in this browser.");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "";
+  let dataLines: string[] = [];
+
+  const dispatch = (): void => {
+    const data = JSON.parse(dataLines.join("\n"));
+    if (eventName === "done") {
+      doneResolve(data as AnalyzeResponse);
+    } else if (eventName === "error") {
+      doneReject(new Error(data?.message ?? "AI analysis failed."));
+    } else if (eventName === "stage" && onStage) {
+      onStage(data.stage as AnalyzeStage);
+    }
+    eventName = "";
+    dataLines = [];
+  };
+
+  let doneResolve!: (value: AnalyzeResponse) => void;
+  let doneReject!: (reason?: unknown) => void;
+  const result = new Promise<AnalyzeResponse>((resolve, reject) => {
+    doneResolve = resolve;
+    doneReject = reject;
+  });
+
+  const read = async (): Promise<void> => {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        // Trailing event without a closing blank line.
+        if (eventName && dataLines.length) dispatch();
+        if (!eventName) doneReject(new Error("Connection closed before analysis finished."));
+        return;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event:")) eventName = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+        }
+        if (eventName && dataLines.length) dispatch();
+        eventName = "";
+        dataLines = [];
+      }
+    }
+  };
+
+  read().catch((err) => doneReject(err));
+  return result;
 }
 
 /**

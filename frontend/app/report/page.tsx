@@ -6,10 +6,44 @@ import {
   analyzeComplaintImage,
   createComplaint,
   type AnalysisResult,
+  type AnalyzeStage,
   type LocationResult,
   type RoutingResult,
   type StoredComplaint,
 } from "@/services/api";
+
+/** Human copy for each pipeline stage, driven by real SSE events from the backend. */
+const STAGE_COPY: Record<AnalyzeStage, { label: string; note: string }> = {
+  starting: {
+    label: "Starting the AI agents…",
+    note: "Uploading your photo to the analyzer",
+  },
+  vision: {
+    label: "Analyzing the image…",
+    note: "Identifying the issue, severity & confidence",
+  },
+  location: {
+    label: "Locating the area…",
+    note: "Detecting your ward from the GPS position",
+  },
+  routing: {
+    label: "Routing the complaint…",
+    note: "Assigning the responsible GHMC department",
+  },
+};
+
+/** The three agent steps, in pipeline order - lit up as each one finishes. */
+const PIPELINE_STEPS = ["vision", "location", "routing"] as const;
+
+function pillState(
+  stepIndex: number,
+  stage: AnalyzeStage
+): "done" | "active" | "upcoming" {
+  const activeIndex = stage === "starting" ? -1 : PIPELINE_STEPS.indexOf(stage);
+  if (stepIndex < activeIndex) return "done";
+  if (stepIndex === activeIndex) return "active";
+  return "upcoming";
+}
 
 export default function ReportPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -28,7 +62,24 @@ export default function ReportPage() {
   const [ward, setWard] = useState("");
   const [area, setArea] = useState("");
 
+  // Seconds since the analysis started - live feedback while the vision
+  // model works (it genuinely takes 30-60 s on a real image).
+  const [elapsed, setElapsed] = useState(0);
+  // Active LangGraph stage ("starting" until the first SSE event arrives).
+  const [stage, setStage] = useState<AnalyzeStage>("starting");
+
   const abortRef = useRef<AbortController | null>(null);
+  // True when the in-flight request was cancelled by picking a new photo or
+  // resetting - suppress the misleading "timed out" error in that case.
+  const canceledRef = useRef(false);
+
+  // Tick a second counter while analyzing.
+  useEffect(() => {
+    if (!analyzing) return;
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [analyzing]);
 
   // Try to capture the user's location once when the page loads.
   useEffect(() => {
@@ -73,6 +124,7 @@ export default function ReportPage() {
   }, []);
 
   const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    canceledRef.current = true;
     abortRef.current?.abort();
     const img = e.target.files?.[0];
     if (!img) return;
@@ -93,16 +145,21 @@ export default function ReportPage() {
 
     setAnalyzing(true);
     setError("");
+    setStage("starting");
+    canceledRef.current = false;
     // The 72B vision model takes 30-60 s on a real call; give it 2.5 min
     // before failing, and let a new selection cancel the request.
     const controller = new AbortController();
     abortRef.current = controller;
     const timer = setTimeout(() => controller.abort(), 150_000);
     try {
+      // Stage events arrive as each LangGraph agent starts (vision ->
+      // location -> routing) - the chip text updates on the real pipeline.
       const data = await analyzeComplaintImage(file, {
         lat: coords?.lat,
         lng: coords?.lng,
         signal: controller.signal,
+        onStage: (s) => setStage(s),
       });
       setResult(data.analysis);
       // Location enrichment is best-effort; prefill the ward from it.
@@ -113,6 +170,8 @@ export default function ReportPage() {
       }
       setRoutingResult(data.routing);
     } catch (err) {
+      // Cancelled by picking a new photo or resetting - nothing to report.
+      if (canceledRef.current) return;
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Analysis timed out after 2.5 minutes. Try a smaller image.");
       } else {
@@ -156,6 +215,7 @@ export default function ReportPage() {
   };
 
   const reset = () => {
+    canceledRef.current = true;
     abortRef.current?.abort();
     setFile(null);
     setPreview("");
@@ -176,6 +236,12 @@ export default function ReportPage() {
       )
     : 0;
 
+  // Show the analysis timer as "42s", then "1:05" past a minute.
+  const formatElapsed = (s: number) =>
+    s >= 60
+      ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+      : `${s}s`;
+
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
       <div className="mx-auto max-w-3xl">
@@ -186,7 +252,7 @@ export default function ReportPage() {
         </p>
 
         {/* Upload */}
-        <label className="mt-8 flex h-72 cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900">
+        <label className="relative mt-8 flex h-72 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900">
           <input
             type="file"
             accept="image/*"
@@ -195,11 +261,75 @@ export default function ReportPage() {
           />
 
           {preview ? (
-            <img
-              src={preview}
-              alt="preview"
-              className="h-full w-full rounded-2xl object-cover"
-            />
+            <>
+              <img
+                src={preview}
+                alt="preview"
+                className="h-full w-full rounded-2xl object-cover"
+              />
+
+              {/* Animated state while the AI agents analyze the photo. */}
+              {analyzing && (
+                <>
+                  {/* Dim the photo so the scanner reads clearly. */}
+                  <div className="absolute inset-0 rounded-2xl bg-slate-950/60" />
+
+                  {/* Scanner sweep travelling down the image. */}
+                  <div className="animate-civicfix-scan absolute inset-x-4 h-16 rounded-full bg-gradient-to-b from-transparent via-blue-400/60 to-transparent" />
+
+                  {/* Viewfinder corner brackets. */}
+                  <span className="pointer-events-none absolute left-3 top-3 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-blue-300/90" />
+                  <span className="pointer-events-none absolute right-3 top-3 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-blue-300/90" />
+                  <span className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-blue-300/90" />
+                  <span className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-blue-300/90" />
+
+                  {/* Live status chip: copy advances with the real pipeline. */}
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="relative size-16">
+                        <span className="absolute inset-0 rounded-full border-4 border-blue-400/20" />
+                        <span className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-blue-400" />
+                        <span className="absolute inset-0 grid place-items-center text-2xl">
+                          🤖
+                        </span>
+                      </div>
+                      <p className="mt-4 text-lg font-bold text-white drop-shadow">
+                        {STAGE_COPY[stage].label}
+                      </p>
+                      <p className="mt-1 font-mono text-3xl font-bold tabular-nums text-blue-300">
+                        {formatElapsed(elapsed)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        {STAGE_COPY[stage].note}
+                      </p>
+
+                      {/* Pipeline steps - light up as each agent finishes. */}
+                      <div className="mt-4 flex items-center gap-2">
+                        {PIPELINE_STEPS.map((step, i) => {
+                          const state = pillState(i, stage);
+                          const className =
+                            state === "done"
+                              ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
+                              : state === "active"
+                                ? "bg-blue-500/15 text-blue-200 ring-blue-400/60 animate-pulse"
+                                : "bg-slate-800/80 text-slate-500 ring-slate-700";
+                          const marker =
+                            state === "done" ? "✓" : state === "active" ? "●" : String(i + 1);
+                          return (
+                            <span
+                              key={step}
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${className}`}
+                            >
+                              {marker} {step}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
           ) : (
             <div className="text-center">
               <p className="text-5xl">📷</p>
@@ -224,15 +354,22 @@ export default function ReportPage() {
         <button
           onClick={analyze}
           disabled={!file || analyzing || !!saved}
-          className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold disabled:bg-slate-700"
+          className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-500 disabled:bg-slate-700"
         >
-          {analyzing ? "Analyzing... (30–60 s)" : "Analyze with AI"}
+          {analyzing ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Analyzing…
+            </span>
+          ) : (
+            "Analyze with AI"
+          )}
         </button>
 
         {analyzing && (
           <p className="mt-3 text-center text-xs text-slate-500">
-            The AI vision model takes 30–60 seconds on a real image. You can
-            pick a different photo to cancel.
+            Running the Vision → Location → Routing pipeline. Pick a different
+            photo to cancel.
           </p>
         )}
 
