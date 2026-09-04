@@ -1,0 +1,13 @@
+# Web framework
+fastapi>=0.115
+
+# ASGI server (run with: uvicorn app.main:app --reload)
+uvicorn>=0.30
+
+# Loads backend/.env into environment variables (used by app/config.py)
+python-dotenv>=1.0
+
+# NOTE: Nothing else is installed yet on purpose.
+#   - Supabase SDK:        add when we wire the database (later milestone)
+#   - Featherless SDK:     add when we wire AI (later milestone)
+#   - LangGraph:           add when we build the agent workflow (later milestone)

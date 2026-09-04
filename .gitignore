@@ -1,0 +1,30 @@
+# ---------- Node / Next.js (frontend) ----------
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# ---------- Python (backend) ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Environment files ----------
+# Local env files are ignored; the .example files document what goes in them.
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ---------- OS / editor ----------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---------- Local tooling ----------
+.freebuff/

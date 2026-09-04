@@ -1,0 +1,7 @@
+/* Tailwind CSS v4 entry point - scans content and generates utilities. */
+@import "tailwindcss";
+
+/*
+  Global custom styles (CSS variables, fonts, keyframes, ...) can be added
+  here later. Keep per-component styling inside the components instead.
+*/
