@@ -1,19 +1,21 @@
 """Location agent - pins down where a complaint is (coords + GHMC ward).
 
-GPS usually comes from the caller, not from parsing text: the browser sends
-real coordinates via navigator.geolocation (see the /report page), or they
-are embedded in the photo's EXIF metadata. The description is only parsed
-for a "[GPS: lat, lng]" tag as a last resort.
+GPS comes from the caller, not from parsing text: the browser sends real
+coordinates via navigator.geolocation (see the /report page), or they are
+embedded in the photo's EXIF metadata.
 
-Once coordinates are known, the agent reverse-geocodes them to a street
-address via OpenStreetMap (geopy/Nominatim, no API key needed). The GHMC
-ward / zone is then derived straight from that address - Nominatim already
-returns ward numbers and zone names (e.g. "Ward 98 Ameerpet", "Central
-Zone"), so no AI call is required.
+Coordinates are reverse-geocoded to a street address via OpenStreetMap
+(geopy/Nominatim, no API key needed). Nominatim addresses for Hyderabad
+carry precise tokens like "Ward 104 Kondapur" and "Greater Hyderabad
+Municipal Corporation West Zone", so the ward / zone is derived straight
+from the address by rules - that is the reliable path.
 
-Optionally, when WARD_MODEL is configured (backend/.env), a Featherless
-chat model can refine the mapping. This is a bonus, not a dependency: if
-the model is gated, busy, or unset, the address-derived ward still works.
+A Featherless chat model (WARD_MODEL, default Qwen 7B) then refines the
+mapping and guesses the infrastructure type. It is a bonus, not a
+dependency: if the model is unset, gated, busy, or slow, the
+address-derived values still stand. The nearby-incident counters are real
+counts from the Supabase `complaints` table (within ~2 km), or null when
+the database is unreachable - never hardcoded.
 
 Both integrations are synchronous SDK calls, so they run in worker threads
 (asyncio.to_thread) - they must not block FastAPI's event loop.
@@ -21,6 +23,7 @@ Both integrations are synchronous SDK calls, so they run in worker threads
 
 import asyncio
 import json
+import math
 import re
 from typing import Any, Dict
 
@@ -28,6 +31,7 @@ from geopy.geocoders import Nominatim
 
 from app.config import settings
 from app.services.featherless_service import FeatherlessService
+from app.services.supabase_service import SupabaseService
 
 # Well-known GHMC zone / prominent-area names, matched against the address.
 _KNOWN_AREAS = [
@@ -56,21 +60,55 @@ _KNOWN_AREAS = [
 # Fallback used when no coordinates are available at all. Hyderabad centre.
 _FALLBACK_COORDS = (17.4399, 78.4983)
 
+# Radius (km) used for the "nearby incidents" counter.
+_NEARBY_RADIUS_KM = 2.0
+
+# Infrastructure types the AI may return; anything else is ignored so a
+# confused model cannot overwrite a sensible value with nonsense.
+_ALLOWED_INFRA = {
+    "Main Road",
+    "Residential",
+    "Commercial",
+    "Highway",
+    "Industrial",
+    "Park",
+    "Water Body",
+    "School",
+    "Hospital",
+    "Other",
+}
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in kilometres between two points."""
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
 
 def _ward_from_address(address: str) -> tuple[str, str, str]:
     """Derive (ward, area_name, zone) from a Nominatim address string.
 
     Pure rules, no network and no AI: Nominatim addresses for Hyderabad
-    include tokens like 'Ward 98 Ameerpet' and 'Central Zone', which is
-    enough for a civic demo. Returns ('', '', '') when nothing matches.
+    include tokens like 'Ward 104 Kondapur' and 'West Zone', which pins the
+    complaint to a real GHMC ward. Returns ('', '', '') when nothing matches.
     """
     ward = ""
     area = ""
     zone = ""
 
-    m = re.search(r"ward\s*(\d+)", address, re.IGNORECASE)
+    # "Ward 104 Kondapur" -> ward number 104 + locality "Kondapur".
+    m = re.search(
+        r"ward\s*(\d+)\s*([^,]*?)(?=\s*,|$)", address, re.IGNORECASE
+    )
     if m:
         ward = f"Ward {m.group(1)}"
+        locality = m.group(2).strip()
+        if locality:
+            ward = f"{ward} {locality}"
 
     zone_m = re.search(r"(\w[\w &-]*?)\s*zone", address, re.IGNORECASE)
     if zone_m:
@@ -100,6 +138,43 @@ def _ward_from_address(address: str) -> tuple[str, str, str]:
     return ward, area, zone
 
 
+def _infra_from_address(address: str) -> str:
+    """Best-effort infrastructure type from address keywords."""
+    lower = address.lower()
+    if "highway" in lower or "expressway" in lower:
+        return "Highway"
+    if "residential" in lower or "colony" in lower or "nagar" in lower:
+        return "Residential"
+    if "market" in lower or "commercial" in lower or "complex" in lower:
+        return "Commercial"
+    if "road" in lower or "street" in lower or "lane" in lower:
+        return "Main Road"
+    return "Other"
+
+
+def _counts_from_rows(
+    lat: float, lng: float, rows: list[dict[str, Any]]
+) -> tuple[int, int]:
+    """Count complaints near (lat, lng) from stored rows.
+
+    Returns (nearby_total, nearby_unresolved). Unresolved = status is
+    anything other than 'resolved' (GHMC marks a complaint done with that
+    word).
+    """
+    nearby = 0
+    unresolved = 0
+    for row in rows:
+        r_lat, r_lng = row.get("lat"), row.get("lng")
+        if r_lat is None or r_lng is None:
+            continue
+        if _haversine_km(lat, lng, float(r_lat), float(r_lng)) > _NEARBY_RADIUS_KM:
+            continue
+        nearby += 1
+        if (row.get("status") or "submitted").lower() != "resolved":
+            unresolved += 1
+    return nearby, unresolved
+
+
 class LocationAgent:
     """Context-building agent: Maps GPS to real-world infrastructure."""
 
@@ -107,6 +182,16 @@ class LocationAgent:
         # OpenStreetMap reverse geocoding (no API key needed)
         self.geolocator = Nominatim(user_agent="Civicos_HackWave_ContextAgent")
         self.ai = FeatherlessService()
+
+    def _fetch_nearby_rows(self) -> list[dict[str, Any]]:
+        """Sync Supabase read - runs inside a worker thread."""
+        service = SupabaseService()
+        response = (
+            service.client.table(service.TABLE)
+            .select("lat,lng,status")
+            .execute()
+        )
+        return list(response.data or [])
 
     async def extract_location(
         self,
@@ -124,7 +209,7 @@ class LocationAgent:
             if gps_match:
                 lat, lng = float(gps_match.group(1)), float(gps_match.group(2))
             else:
-                print("WARNING: No coordinates provided. Defaulting to Secunderabad.")
+                print("WARNING: No coordinates provided. Defaulting to Hyderabad centre.")
                 lat, lng = _FALLBACK_COORDS
 
         # 2. REVERSE GEOCODE: Get the real street address using Geopy.
@@ -138,23 +223,25 @@ class LocationAgent:
             print(f"Geocoding failed: {exc}")
             exact_address = "Address lookup failed"
 
-        # 3. WARD: derive it from the address first - this always works.
+        # 3. WARD/ZONE: derive from the address first - this always works.
         ward, area, zone = _ward_from_address(exact_address)
+        infrastructure_type = _infra_from_address(exact_address)
 
-        # 4. AI MAPPING (optional): only if a WARD_MODEL is configured.
-        #    A gated/busy/missing model must never break the location step.
+        # 4. AI MAPPING (optional refinement): runs when WARD_MODEL is set.
+        #    A gated/busy/missing model must never break the location step,
+        #    and rules-derived values win over a confused model's guesses.
         ai_error = None
         if settings.WARD_MODEL:
             system_prompt = f"""
             You are a civic context engine for the Greater Hyderabad Municipal Corporation (GHMC).
             Given this exact address: {exact_address}
 
-            Determine the likely GHMC Zone (e.g., Charminar, Khairatabad, Secunderabad, Kukatpally, Serilingampally, LB Nagar), a short area name, and an infrastructure type.
+            Determine the likely GHMC Zone (e.g., Charminar, Khairatabad, Secunderabad, Kukatpally, Serilingampally, LB Nagar), a short area name, and the infrastructure type.
 
             Return ONLY a raw JSON object with:
-            - "ward" (string)
-            - "area_name" (string)
-            - "infrastructure_type" (string: e.g., 'Main Road', 'Residential', 'Highway', 'Commercial')
+            - "zone" (string, the GHMC zone name)
+            - "area_name" (string, a short recognisable locality name)
+            - "infrastructure_type" (string, one of: {sorted(_ALLOWED_INFRA)})
             """
 
             try:
@@ -164,7 +251,7 @@ class LocationAgent:
                         {
                             "role": "user",
                             "content": (
-                                "Map this address to a GHMC ward and return the JSON."
+                                "Map this address to a GHMC zone and return the JSON."
                             ),
                         },
                     ],
@@ -172,18 +259,36 @@ class LocationAgent:
                 )
                 cleaned_text = raw.replace("```json", "").replace("```", "").strip()
                 ai_data = json.loads(cleaned_text)
-                ward = ai_data.get("ward") or ward
-                area = ai_data.get("area_name") or area
+                ai_zone = str(ai_data.get("zone") or "").strip()
+                ai_area = str(ai_data.get("area_name") or "").strip()
+                ai_infra = str(ai_data.get("infrastructure_type") or "").strip()
+
+                # Zone: prefer the address's own token (ground truth), fall
+                # back to the AI when the address had none.
+                if not zone and ai_zone:
+                    zone = ai_zone
+                # Area: an AI guess only helps when the address gave nothing.
+                if not area and ai_area:
+                    area = ai_area
+                # Infrastructure: only accept a value from the allow-list.
+                if ai_infra in _ALLOWED_INFRA:
+                    infrastructure_type = ai_infra
             except Exception as exc:
                 ai_error = str(exc)
 
-        # The zone names the GHMC circle; prefer it over a bare ward number.
-        ward_name = zone or ward or "Secunderabad"
-        infrastructure_type = "Main Road"
-        if "residential" in exact_address.lower():
-            infrastructure_type = "Residential"
-        elif "highway" in exact_address.lower() or "road" in exact_address.lower():
-            infrastructure_type = "Main Road"
+        # The GHMC routes on ward numbers, so prefer the precise ward
+        # ("Ward 104 Kondapur") over the zone; fall back to zone / area.
+        ward_name = ward or zone or area or "Secunderabad"
+
+        # 5. REAL nearby-incident counts from Supabase (best-effort). We
+        #    never fabricate these - no database -> null, not a fake number.
+        nearby_incidents: int | None = None
+        unresolved_incidents: int | None = None
+        try:
+            rows = await asyncio.to_thread(self._fetch_nearby_rows)
+            nearby_incidents, unresolved_incidents = _counts_from_rows(lat, lng, rows)
+        except Exception as exc:
+            print(f"Nearby-incident lookup skipped: {exc}")
 
         return {
             "lat": lat,
@@ -191,8 +296,9 @@ class LocationAgent:
             "exact_address": exact_address,
             "area_name": area or "Unknown",
             "ward": ward_name,
+            "zone": zone,
             "infrastructure_type": infrastructure_type,
-            "nearby_incidents": 3,
-            "unresolved_incidents": 2,
+            "nearby_incidents": nearby_incidents,
+            "unresolved_incidents": unresolved_incidents,
             "ai_mapping_error": ai_error,
         }

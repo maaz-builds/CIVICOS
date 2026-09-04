@@ -36,16 +36,40 @@ export default function ReportPage() {
       setLocationNote("Location is unavailable in this browser — enter the area manually.");
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLocationNote("Using your current location for the report.");
-      },
-      () => {
-        setLocationNote("Location permission denied — enter the area manually.");
-      },
-      { timeout: 8000, maximumAge: 300_000 }
-    );
+
+    // High accuracy + no caching gives the tightest fix; retry once in
+    // case the first lock times out (but never after a hard denial).
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    };
+    let attempts = 0;
+    const request = () => {
+      attempts += 1;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          const meters = Math.round(pos.coords.accuracy || 0);
+          setLocationNote(
+            meters > 0
+              ? `Using your current location (±${meters} m).`
+              : "Using your current location for the report."
+          );
+        },
+        (err) => {
+          if (err.code === err.PERMISSION_DENIED) {
+            setLocationNote("Location permission denied — enter the area manually.");
+          } else if (attempts < 2) {
+            request();
+          } else {
+            setLocationNote("Couldn't get a GPS fix — enter the area manually.");
+          }
+        },
+        options
+      );
+    };
+    request();
   }, []);
 
   const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -268,8 +292,16 @@ export default function ReportPage() {
                 <>
                   <p className="mt-1 text-sm text-slate-300">
                     Detected area: <span className="font-semibold">{area || locationResult.area_name}</span>
-                    {" · "}{locationResult.ward}
+                    {" · "}
+                    {locationResult.zone
+                      ? locationResult.zone
+                      : locationResult.ward}
                   </p>
+                  {locationResult.zone && (
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {locationResult.ward}
+                    </p>
+                  )}
                   <p className="mt-1 truncate text-xs text-slate-500">
                     {locationResult.exact_address}
                   </p>

@@ -50,8 +50,14 @@ export interface LocationResult {
   lng: number;
   exact_address: string;
   area_name: string;
+  /** Precise GHMC ward when known (e.g. "Ward 104 Kondapur"), else the zone/area. */
   ward: string;
+  /** GHMC zone circle (e.g. "West Zone"), empty when unknown. */
+  zone?: string;
   infrastructure_type: string;
+  /** Real counts from stored complaints within ~2 km; null when the DB is unreachable. */
+  nearby_incidents?: number | null;
+  unresolved_incidents?: number | null;
 }
 
 /** Routing enrichment produced by the Routing Agent (POST /complaints/analyze). */

@@ -58,12 +58,15 @@ class Settings:
         "Qwen/Qwen2.5-VL-72B-Instruct",
     )
 
-    # Optional chat model used by the Location Agent to refine the
-    # address -> GHMC ward mapping. Leave empty to use the built-in
-    # address parser (works without any model). If you enable it, pick an
-    # ungated Featherless instruct model, e.g.:
-    #   WARD_MODEL=Qwen/Qwen2.5-7B-Instruct
-    WARD_MODEL: str = os.getenv("WARD_MODEL", "")
+    # Chat model used by the Location Agent to refine the address -> GHMC
+    # ward/zone mapping and guess the infrastructure type. Defaults to an
+    # ungated, fast Featherless instruct model; the built-in address parser
+    # stays as the fallback. Set WARD_MODEL to an empty string to disable
+    # AI for this step entirely (parser-only mode).
+    WARD_MODEL: str = os.getenv(
+        "WARD_MODEL",
+        "Qwen/Qwen2.5-7B-Instruct",
+    )
 
     # Chat model used by the Routing Agent to map an issue category to the
     # responsible GHMC department. The default is ungated and fast; set it
