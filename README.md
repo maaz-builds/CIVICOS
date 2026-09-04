@@ -19,7 +19,7 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 | --------- | ------------------------------------------------------- | ----------------------------------------- |
 | Frontend  | Next.js (App Router) + TypeScript + Tailwind CSS        | Working                                   |
 | Backend   | Python + FastAPI                                        | Working                                   |
-| Database  | Supabase                                                | Not connected yet                         |
+| Database  | Supabase                                                | SDK wired — add keys + run schema.sql     |
 | AI        | Featherless AI (OpenAI-compatible)                      | Vision agent live; needs `FEATHERLESS_API_KEY` |
 | Workflows | LangGraph (agent orchestration)                         | Drafted, not wired to an endpoint yet     |
 | API       | REST (frontend calls the FastAPI backend)               | `/health` + `/complaints/analyze`         |
@@ -41,8 +41,8 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 │   │   ├── main.py            # FastAPI app + CORS + router mounting
 │   │   ├── config.py          # Central settings (env-driven)
 │   │   ├── routes/            # API endpoints (health, complaints)
-│   │   ├── agents/            # AI agents (vision live; rest are stubs)
-│   │   ├── services/          # Integrations (Featherless live; Supabase stubs)
+│   │   ├── agents/            # AI agents (vision + tracking-ID live; rest are stubs)
+│   │   ├── services/          # Integrations (Featherless + Supabase wired)
 │   │   ├── schemas/           # Future request/response models
 │   │   └── workflows/         # LangGraph pipeline (drafted, unwired)
 │   ├── api/                   # Vercel entrypoint (mounts app under /api/backend)

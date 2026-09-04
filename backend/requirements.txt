@@ -18,4 +18,8 @@ openai>=1.40
 # (backend/app/workflows/complaint_workflow.py)
 langgraph>=0.2
 
-# NOTE: Supabase SDK + storage are still pending (database milestone).
+# Supabase - complaint persistence (app/services/supabase_service.py).
+# Create the table first: run backend/supabase/schema.sql in the dashboard.
+supabase>=2.0
+
+# NOTE: image storage (Supabase Storage) is still pending (upload milestone).

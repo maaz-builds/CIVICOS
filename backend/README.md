@@ -38,15 +38,15 @@ backend/
 │   ├── routes/               # One router module per resource
 │   │   ├── health.py         # GET /health
 │   │   └── complaints.py     # POST /complaints/analyze (vision analysis)
-│   ├── agents/               # AI agents — vision implemented, rest are stubs
+│   ├── agents/               # AI agents — vision + tracking IDs live, rest are stubs
 │   │   ├── vision_agent.py   #   photo analysis (what is the issue?) ✅
 │   │   ├── location_agent.py #   where is it? (coords / ward)
 │   │   ├── routing_agent.py  #   which department handles it?
 │   │   ├── complaint_agent.py#   assemble + validate a complaint record
-│   │   └── tracking_agent.py #   tracking IDs + status updates
+│   │   └── tracking_agent.py #   collision-safe tracking IDs ✅ (status pending)
 │   ├── services/             # Integrations
 │   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)
-│   │   ├── supabase_service.py     # Supabase database (pending)
+│   │   ├── supabase_service.py     # Supabase complaints (needs keys + table)
 │   │   └── storage_service.py      # photo storage (pending)
 │   ├── schemas/              # Future request/response Pydantic models
 │   │   └── complaint_schema.py
@@ -54,6 +54,8 @@ backend/
 │       └── complaint_workflow.py
 ├── api/
 │   └── index.py              # Vercel entrypoint (mounts the app at /api/backend)
+├── supabase/
+│   └── schema.sql            # complaints table + RLS (run once in the dashboard)
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -73,10 +75,14 @@ chosen so the app runs without any `.env` file:
 | CIVICFIX_CORS_ORIGINS  | http://localhost:3000,http://127.0.0.1:3000 | Allowed browser origins (CORS) |
 | CIVICFIX_SERVICE_NAME  | civicfix-backend                          | Name reported by /health |
 | FEATHERLESS_API_KEY    | (empty)                                   | Featherless key for AI analysis — empty until you add it |
+| SUPABASE_URL           | (empty)                                   | Supabase project URL — required for database calls |
+| SUPABASE_ANON_KEY      | (empty)                                   | Supabase anon key — required for database calls |
 
 The app boots without `FEATHERLESS_API_KEY`; `POST /complaints/analyze`
 answers **502** with a clear message until the key is set (locally in
 `backend/.env`, or as a Vercel environment variable in production).
+Similarly, database calls fail with a clear message until `SUPABASE_URL` +
+`SUPABASE_ANON_KEY` are set and `supabase/schema.sql` has been run once.
 
 ## Testing the API
 
