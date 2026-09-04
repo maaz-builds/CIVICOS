@@ -77,6 +77,13 @@ export default function Home() {
             >
               🔎 Track Complaint
             </Link>
+
+            <Link
+              href="/ghmc"
+              className="rounded-xl border border-slate-300 bg-white px-8 py-4 text-base font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              🏛️ Government Portal
+            </Link>
           </div>
         </section>
 

@@ -41,6 +41,16 @@ create policy "allow anon select"
     for select
     using (true);
 
+-- The GHMC demo portal advances complaint statuses (submitted -> assigned
+-- -> in progress -> resolved); citizens then see the change on /track.
+-- Dropped first so re-running the file is safe.
+drop policy if exists "allow anon update complaints" on public.complaints;
+create policy "allow anon update complaints"
+    on public.complaints
+    for update
+    using (true)
+    with check (true);
+
 -- ---------------------------------------------------------------------------
 -- Storage: complaint photo uploads.
 -- Creates the public bucket + demo-grade policies used by StorageService.

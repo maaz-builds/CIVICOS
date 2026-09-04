@@ -6,12 +6,12 @@ Take a photo of a pothole, garbage pile, or broken street light in Hyderabad —
 CivicFix identifies the issue, routes it to the right civic department, and
 lets residents track the fix. Built for a hackathon, designed to grow.
 
-> **Status: full agent pipeline implemented.** Vision, location, routing,
-> and complaint agents all work and `POST /complaints/analyze` returns the
-> vision analysis + location + assigned GHMC department. Complaints save to
-> Supabase (photo → Storage → `image_url`) with a CF- tracking ID. Still
-> upcoming: tracking status updates, wiring the LangGraph pipeline into the
-> endpoints, and authentication.
+> **Status: end-to-end loop implemented.** The LangGraph pipeline
+> (vision → location → routing) is wired into `POST /complaints/analyze`,
+> complaints persist to Supabase (photo → Storage → `image_url`) with a
+> CF- tracking ID, the GHMC demo portal (/ghmc) lists real complaints and
+> advances their lifecycle status, and citizens see the change instantly on
+> /track. Still upcoming: authentication and a real (non-demo) GHMC intake.
 
 ## Tech stack
 
@@ -19,10 +19,10 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 | --------- | ------------------------------------------------------- | ----------------------------------------- |
 | Frontend  | Next.js (App Router) + TypeScript + Tailwind CSS        | Working                                   |
 | Backend   | Python + FastAPI                                        | Working                                   |
-| Database  | Supabase                                                | SDK wired — add keys + run schema.sql     |
-| AI        | Featherless AI (OpenAI-compatible)                      | Vision agent live; needs `FEATHERLESS_API_KEY` |
-| Workflows | LangGraph (agent orchestration)                         | Drafted, not wired to an endpoint yet     |
-| API       | REST (frontend calls the FastAPI backend)               | `/health` + `/complaints/analyze`         |
+| Database  | Supabase (Postgres + Storage)                           | Live — keys in env, schema.sql applied    |
+| AI        | Featherless AI (OpenAI-compatible)                      | Vision, Location + Routing agents live    |
+| Workflows | LangGraph (agent orchestration)                         | Live — wired into `POST /complaints/analyze` |
+| API       | REST (frontend calls the FastAPI backend)               | `/health`, analyze, create, list, lookup, status PATCH |
 
 ## Repository layout
 
@@ -41,10 +41,10 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 │   │   ├── main.py            # FastAPI app + CORS + router mounting
 │   │   ├── config.py          # Central settings (env-driven)
 │   │   ├── routes/            # API endpoints (health, complaints)
-│   │   ├── agents/            # AI agents (vision + tracking-ID live; rest are stubs)
+│   │   ├── agents/            # AI agents — all five implemented
 │   │   ├── services/          # Integrations (Featherless + Supabase wired)
-│   │   ├── schemas/           # Future request/response models
-│   │   └── workflows/         # LangGraph pipeline (drafted, unwired)
+│   │   ├── schemas/           # Request/response Pydantic models
+│   │   └── workflows/         # LangGraph pipeline (live, in /complaints/analyze)
 │   ├── api/                   # Vercel entrypoint (mounts app under /api/backend)
 │   ├── requirements.txt
 │   ├── .env.example
@@ -113,8 +113,21 @@ vercel.json
 4. Deploy. The backend entrypoint is `backend/api/index.py`, which mounts the
    FastAPI app under `/api/backend` to match the rewrite prefix.
 5. Set environment variables: **Project → Settings → Environment Variables**
-   → add `FEATHERLESS_API_KEY` (from https://featherless.ai), then redeploy.
-   The health check works without it; `POST /complaints/analyze` needs it.
+   (values go in as `NAME=value` without the key name prefix), then
+   **Redeploy** so they take effect:
+
+   | Variable             | Source                                   |
+   | -------------------- | ---------------------------------------- |
+   | `FEATHERLESS_API_KEY` | https://featherless.ai (starts `rc_…`)  |
+   | `SUPABASE_URL`       | Supabase → Project Settings → API       |
+   | `SUPABASE_ANON_KEY`  | Supabase → Project Settings → API       |
+   | `VISION_MODEL`       | optional — default `Qwen/Qwen2.5-VL-72B-Instruct` (7B is faster) |
+   | `ROUTING_MODEL`      | optional — default `Qwen/Qwen2.5-7B-Instruct` |
+   | `WARD_MODEL`         | optional — default `Qwen/Qwen2.5-7B-Instruct` (Location Agent) |
+
+   The health check works without any of them; AI analysis needs
+   `FEATHERLESS_API_KEY`, and complaint save/track/status needs the Supabase
+   pair plus `schema.sql` applied in the Supabase SQL editor.
 
 **How the paths line up**
 
@@ -131,9 +144,11 @@ run everything together with the Vercel CLI: `npx vercel dev`.
 
 ## Roadmap (later milestones)
 
-1. Complaint intake: form + `POST /complaints` + tracking ID
-2. Supabase persistence (users, complaints, statuses)
+1. ~~Complaint intake: form + `POST /complaints` + tracking ID~~ ✅
+2. ~~Supabase persistence (complaints, statuses)~~ ✅
 3. ~~Image upload + storage~~ ✅ (Supabase Storage, linked via `image_url`)
-4. ~~Implement the remaining agents: location → routing → complaint~~ ✅ (tracking status still pending)
-5. Wire the LangGraph workflow (`complaint_workflow.py`) into the analyze flow
-6. User dashboards, maps, and status updates
+4. ~~All five agents: vision → location → routing → complaint → tracking~~ ✅
+5. ~~Wire the LangGraph workflow into the analyze flow~~ ✅
+6. ~~GHMC portal → status updates → visible on /track~~ ✅ (demo-grade)
+7. Up next: authentication (per-user complaints), a real GHMC intake with
+   verified credentials, maps/ward dashboards, automated tests

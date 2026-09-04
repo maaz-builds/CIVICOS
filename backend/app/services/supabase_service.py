@@ -81,3 +81,23 @@ class SupabaseService:
         )
         rows = response.data or []
         return rows[0] if rows else None
+
+    async def update_complaint_status(
+        self,
+        tracking_id: str,
+        status: str,
+    ) -> dict[str, Any] | None:
+        """Set the lifecycle status of a complaint by its CF- tracking ID.
+
+        Returns the updated row, or None when no complaint has that
+        tracking ID (an RLS misconfiguration also surfaces as an empty
+        update, so the caller's 404 hint mentions the schema policy).
+        """
+        response = (
+            self.client.table(self.TABLE)
+            .update({"status": status})
+            .eq("tracking_id", tracking_id)
+            .execute()
+        )
+        rows = response.data or []
+        return rows[0] if rows else None

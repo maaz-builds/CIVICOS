@@ -85,8 +85,9 @@ export interface ComplaintCreatePayload {
   confidence?: number;
   severity?: string;
   ward?: string;
-  lat?: number;
-  lng?: number;
+  /** Nullable: the DB stores null when the reporter had no GPS fix. */
+  lat?: number | null;
+  lng?: number | null;
   department?: string;
   routing_notes?: string;
   image_url?: string;
@@ -99,6 +100,13 @@ export interface StoredComplaint extends ComplaintCreatePayload {
   status: string;
   created_at: string;
 }
+
+/** Lifecycle of a complaint - mirrors the backend's ComplaintStatus Literal. */
+export type ComplaintStatus =
+  | "submitted"
+  | "assigned"
+  | "in progress"
+  | "resolved";
 
 /** Extract a readable message from a failed API response. */
 async function errorMessage(response: Response): Promise<string> {
@@ -181,6 +189,41 @@ export async function getComplaintByTrackingId(
 ): Promise<StoredComplaint> {
   const response = await fetch(
     `${API_BASE_URL}/complaints/${encodeURIComponent(trackingId)}`
+  );
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+
+  return (await response.json()) as StoredComplaint;
+}
+
+/** List the most recent stored complaints, newest first (GHMC portal feed). */
+export async function listComplaints(limit = 100): Promise<StoredComplaint[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/complaints?limit=${limit}`
+  );
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+
+  return (await response.json()) as StoredComplaint[];
+}
+
+/**
+ * Advance a complaint's lifecycle status (GHMC portal action).
+ * The /track page sees the new status immediately on its next lookup.
+ */
+export async function updateComplaintStatus(
+  trackingId: string,
+  status: ComplaintStatus
+): Promise<StoredComplaint> {
+  const response = await fetch(
+    `${API_BASE_URL}/complaints/${encodeURIComponent(trackingId)}/status`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }
   );
   if (!response.ok) {
     throw new Error(await errorMessage(response));

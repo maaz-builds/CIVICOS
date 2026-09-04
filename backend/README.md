@@ -3,8 +3,11 @@
 FastAPI service for CivicFix Hyderabad. It exposes a health check, an AI
 photo-analysis endpoint (`POST /complaints/analyze`) that identifies the
 civic issue, geocodes it, and routes it to the responsible GHMC department,
-and Supabase-backed complaint persistence with CF- tracking IDs. Tracking
-status updates and wiring the LangGraph pipeline are still pending.
+and Supabase-backed complaint persistence with CF- tracking IDs. The
+LangGraph pipeline is wired into the analyze endpoint, and the GHMC demo
+portal closes the loop: it lists real complaints and advances their
+lifecycle status (submitted → assigned → in progress → resolved), which
+citizens see immediately on the /track page.
 
 ## Quickstart
 
@@ -30,6 +33,7 @@ uvicorn app.main:app --reload --port 8000
 | POST   | /complaints         | Create a complaint (multipart form) → stored row incl. CF- tracking ID; pass `file` to upload the photo to Supabase Storage (linked via `image_url`) |
 | GET    | /complaints         | List recent complaints, newest first (Supabase)                      |
 | GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)   |
+| PATCH  | /complaints/{tracking_id}/status | Advance a complaint's status (GHMC portal action) → updated row; invalid statuses get 422 |
 | GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
 
 ## Structure
@@ -41,20 +45,20 @@ backend/
 │   ├── config.py             # Central settings (reads .env automatically)
 │   ├── routes/               # One router module per resource
 │   │   ├── health.py         # GET /health
-│   │   └── complaints.py     # POST /complaints/analyze (vision analysis)
-│   ├── agents/               # AI agents — all five implemented ✅ (tracking status pending)
+│   │   └── complaints.py     # analyze (LangGraph), create, list, lookup, status PATCH
+│   ├── agents/               # AI agents — all five implemented ✅
 │   │   ├── vision_agent.py   #   photo analysis (what is the issue?) ✅
-│   │   ├── location_agent.py #   where is it? (coords / ward) ✅
+│   │   ├── location_agent.py #   where is it? (coords / ward) ✅ AI-primary
 │   │   ├── routing_agent.py  #   which department handles it? ✅ (AI + rules)
 │   │   ├── complaint_agent.py#   assemble + validate a complaint record ✅
-│   │   └── tracking_agent.py #   collision-safe tracking IDs ✅ (status pending)
+│   │   └── tracking_agent.py #   collision-safe tracking IDs ✅
 │   ├── services/             # Integrations
 │   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)
 │   │   ├── supabase_service.py     # Supabase complaints (needs keys + table)
 │   │   └── storage_service.py      # photo upload → Supabase Storage → image_url
-│   ├── schemas/              # Future request/response Pydantic models
+│   ├── schemas/              # Request/response Pydantic models
 │   │   └── complaint_schema.py
-│   └── workflows/            # LangGraph pipeline — drafted, not wired yet
+│   └── workflows/            # LangGraph pipeline — wired into /complaints/analyze
 │       └── complaint_workflow.py
 ├── api/
 │   └── index.py              # Vercel entrypoint (mounts the app at /api/backend)
@@ -79,6 +83,9 @@ chosen so the app runs without any `.env` file:
 | CIVICFIX_CORS_ORIGINS  | http://localhost:3000,http://127.0.0.1:3000 | Allowed browser origins (CORS) |
 | CIVICFIX_SERVICE_NAME  | civicfix-backend                          | Name reported by /health |
 | FEATHERLESS_API_KEY    | (empty)                                   | Featherless key for AI analysis — empty until you add it |
+| VISION_MODEL           | Qwen/Qwen2.5-VL-72B-Instruct              | Vision model override (e.g. the 7B for faster demos) |
+| ROUTING_MODEL          | Qwen/Qwen2.5-7B-Instruct                  | Model used by the Routing Agent |
+| WARD_MODEL             | Qwen/Qwen2.5-7B-Instruct                  | Model used by the Location Agent; empty = parser-only fallback |
 | SUPABASE_URL           | (empty)                                   | Supabase project URL — required for database calls |
 | SUPABASE_ANON_KEY      | (empty)                                   | Supabase anon key — required for database calls |
 | SUPABASE_STORAGE_BUCKET | complaint-photos                          | Public Storage bucket for complaint photos (created by schema.sql) |
