@@ -1,16 +1,33 @@
-"""Complaint endpoints (placeholder stage).
+from fastapi import APIRouter, UploadFile, File
+import os
+import shutil
+import uuid
 
-Only the read-only placeholder below exists for now. Complaint submission,
-tracking IDs, and persistence arrive in later milestones.
-"""
+from app.agents.vision_agent import VisionAgent
 
-from fastapi import APIRouter
+router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
-router = APIRouter(prefix="/complaints", tags=["complaints"])
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+vision = VisionAgent()
 
 
-@router.get("")
-def list_complaints() -> list:
-    """Placeholder: return an empty list until complaints are stored."""
-    # TODO(database milestone): query complaints from Supabase and return them.
-    return []
+@router.post("/analyze")
+async def analyze_civic_issue(file: UploadFile = File(...)):
+    # Create unique filename
+    extension = file.filename.split(".")[-1]
+    filename = f"{uuid.uuid4()}.{extension}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    # Save uploaded image
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # AI Analysis
+    result = await vision.analyze(filepath)
+
+    return {
+        "success": True,
+        "analysis": result
+    }
