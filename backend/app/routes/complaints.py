@@ -1,7 +1,9 @@
 """Complaint endpoints.
 
-- POST /complaints/analyze   photo -> LangGraph pipeline (vision ->
-                             location -> routing), streamed as SSE events
+- POST /complaints/analyze   image OR video -> LangGraph pipeline (vision ->
+                             location -> routing), streamed as SSE events.
+                             Videos are sampled into frames by the vision
+                             agent and aggregated into one analysis.
 - POST /complaints           create a complaint record (Supabase), optionally
                              with the original photo (Supabase Storage)
 - GET  /complaints           list recent complaints (newest first)
@@ -10,7 +12,7 @@
                              status (submitted -> assigned -> in progress
                              -> resolved); used by the GHMC demo portal
 
-Uploaded photos are written to the OS temp directory instead of a
+Uploaded media are written to the OS temp directory instead of a
 repo-local folder: locally that keeps the working tree clean, and on Vercel
 it is required, because the serverless filesystem is read-only except for
 the /tmp area.
@@ -33,8 +35,42 @@ from app.workflows.complaint_workflow import get_complaint_workflow
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
 # Reject huge uploads early: a giant image means a giant base64 payload and
-# far more vision tokens, which slows the model call dramatically.
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+# far more vision tokens, which slows the model call dramatically. 30 MB
+# covers both photos and short phone videos (the frontend enforces the same
+# cap before uploading).
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB
+
+# MIME types accepted by POST /complaints/analyze. Anything else gets a
+# friendly 415 instead of a confusing model error.
+_ALLOWED_MEDIA_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+}
+
+# Fallback when a client sends no Content-Type header: guess from the
+# filename extension.
+_EXTENSION_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+}
+
+
+def _media_type_of(upload: UploadFile) -> str | None:
+    """Return the upload's MIME type (from header, else extension)."""
+    content_type = (upload.content_type or "").lower()
+    if content_type:
+        return content_type
+    ext = os.path.splitext(upload.filename or "")[1].lower()
+    return _EXTENSION_MEDIA_TYPES.get(ext)
 
 tracking = TrackingAgent()
 db = SupabaseService()
@@ -47,7 +83,12 @@ async def analyze_civic_issue(
     lat: float | None = Form(None, description="GPS latitude (optional)"),
     lng: float | None = Form(None, description="GPS longitude (optional)"),
 ):
-    """Upload a photo and get the vision agent's analysis of the issue.
+    """Upload a photo or video and get the vision agent's analysis.
+
+    Accepts images (jpg/png/webp) and videos (mp4/webm/mov) up to 30 MB.
+    Videos are sampled into a few evenly spaced frames by the vision agent
+    and the per-frame results are aggregated into one unified analysis -
+    the response shape is identical for both media types.
 
     Optional lat/lng come from the browser's geolocation on the /report
     page; when present, the location agent reverse-geocodes them, maps the
@@ -58,8 +99,20 @@ async def analyze_civic_issue(
         raise HTTPException(
             status_code=413,
             detail=(
-                f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB). "
+                f"Media too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB). "
                 "Resize it and try again."
+            ),
+        )
+
+    # Reject anything that is not a supported image/video MIME up front -
+    # a clean 415 instead of a confusing model failure.
+    media_type = _media_type_of(file)
+    if media_type not in _ALLOWED_MEDIA_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Unsupported media type. Upload a JPG, PNG, or WEBP image, "
+                "or an MP4, MOV, or WEBM video."
             ),
         )
 

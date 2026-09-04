@@ -12,14 +12,22 @@ import {
   type StoredComplaint,
 } from "@/services/api";
 
+// Same cap as the backend (POST /complaints/analyze): 30 MB.
+const MAX_MEDIA_BYTES = 30 * 1024 * 1024;
+
+// The 72B vision model takes 30-60 s on one image; a video is sampled into
+// 3 frames, so allow more time for video uploads.
+const IMAGE_TIMEOUT_MS = 150_000;
+const VIDEO_TIMEOUT_MS = 300_000;
+
 /** Human copy for each pipeline stage, driven by real SSE events from the backend. */
 const STAGE_COPY: Record<AnalyzeStage, { label: string; note: string }> = {
   starting: {
     label: "Starting the AI agents…",
-    note: "Uploading your photo to the analyzer",
+    note: "Uploading your media to the analyzer",
   },
   vision: {
-    label: "Analyzing the image…",
+    label: "Analyzing the media…",
     note: "Identifying the issue, severity & confidence",
   },
   location: {
@@ -45,9 +53,16 @@ function pillState(
   return "upcoming";
 }
 
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/");
+}
+
 export default function ReportPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [isVideo, setIsVideo] = useState(false);
   const [preview, setPreview] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [dragging, setDragging] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -69,7 +84,7 @@ export default function ReportPage() {
   const [stage, setStage] = useState<AnalyzeStage>("starting");
 
   const abortRef = useRef<AbortController | null>(null);
-  // True when the in-flight request was cancelled by picking a new photo or
+  // True when the in-flight request was cancelled by picking new media or
   // resetting - suppress the misleading "timed out" error in that case.
   const canceledRef = useRef(false);
 
@@ -123,14 +138,42 @@ export default function ReportPage() {
     request();
   }, []);
 
-  const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    canceledRef.current = true;
+  // Validate + accept a selected/dropped file (image or video).
+  const acceptFile = (candidate: File | undefined | null) => {
     abortRef.current?.abort();
-    const img = e.target.files?.[0];
-    if (!img) return;
+    canceledRef.current = true;
+    if (!candidate) return;
 
-    setFile(img);
-    setPreview(URL.createObjectURL(img));
+    // Unsupported format check (client-side, before upload).
+    const isImage = candidate.type.startsWith("image/");
+    const isVideoType = candidate.type.startsWith("video/");
+    if (!isImage && !isVideoType) {
+      setFile(null);
+      setPreview("");
+      setFileName("");
+      setIsVideo(false);
+      setError(
+        "Unsupported format. Upload a JPG, PNG, or WEBP image, or an MP4, MOV, or WEBM video."
+      );
+      return;
+    }
+
+    // Size check - matches the backend's 30 MB cap.
+    if (candidate.size > MAX_MEDIA_BYTES) {
+      setFile(null);
+      setPreview("");
+      setFileName("");
+      setIsVideo(false);
+      setError(
+        `File too large (max ${MAX_MEDIA_BYTES / (1024 * 1024)} MB). Choose a smaller image or video.`
+      );
+      return;
+    }
+
+    setFile(candidate);
+    setIsVideo(isVideoType);
+    setFileName(candidate.name);
+    setPreview(URL.createObjectURL(candidate));
     setResult(null);
     setLocationResult(null);
     setRoutingResult(null);
@@ -140,6 +183,27 @@ export default function ReportPage() {
     setError("");
   };
 
+  const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    acceptFile(e.target.files?.[0]);
+    // Allow re-selecting the same file after a reset.
+    e.target.value = "";
+  };
+
+  // Drag-and-drop support on the upload area.
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    acceptFile(e.dataTransfer.files?.[0]);
+  };
+
   const analyze = async () => {
     if (!file) return;
 
@@ -147,11 +211,11 @@ export default function ReportPage() {
     setError("");
     setStage("starting");
     canceledRef.current = false;
-    // The 72B vision model takes 30-60 s on a real call; give it 2.5 min
-    // before failing, and let a new selection cancel the request.
+    // Images need ~2.5 min; videos (3 sampled frames) need longer.
+    const timeoutMs = isVideo ? VIDEO_TIMEOUT_MS : IMAGE_TIMEOUT_MS;
     const controller = new AbortController();
     abortRef.current = controller;
-    const timer = setTimeout(() => controller.abort(), 150_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       // Stage events arrive as each LangGraph agent starts (vision ->
       // location -> routing) - the chip text updates on the real pipeline.
@@ -170,10 +234,12 @@ export default function ReportPage() {
       }
       setRoutingResult(data.routing);
     } catch (err) {
-      // Cancelled by picking a new photo or resetting - nothing to report.
+      // Cancelled by picking new media or resetting - nothing to report.
       if (canceledRef.current) return;
       if (err instanceof DOMException && err.name === "AbortError") {
-        setError("Analysis timed out after 2.5 minutes. Try a smaller image.");
+        setError(
+          `Analysis timed out after ${Math.round(timeoutMs / 60000)} minutes. Try a smaller or shorter file.`
+        );
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -202,8 +268,8 @@ export default function ReportPage() {
           department: routingResult?.department || undefined,
           routing_notes: routingResult?.notes || undefined,
         },
-        // Send the original photo too - the backend uploads it to Supabase
-        // Storage and links it via image_url.
+        // Send the original media too - the backend uploads it to
+        // Supabase Storage and links it via image_url (images AND videos).
         file ?? undefined
       );
       setSaved(stored);
@@ -218,7 +284,10 @@ export default function ReportPage() {
     canceledRef.current = true;
     abortRef.current?.abort();
     setFile(null);
+    setIsVideo(false);
     setPreview("");
+    setFileName("");
+    setDragging(false);
     setResult(null);
     setLocationResult(null);
     setRoutingResult(null);
@@ -247,96 +316,134 @@ export default function ReportPage() {
       <div className="mx-auto max-w-3xl">
         <h1 className="text-4xl font-bold">Report a Civic Issue</h1>
         <p className="mt-2 text-slate-400">
-          Upload an image, let CivicFix AI analyze it, then save it with a
-          tracking ID.
+          Upload a photo or video, let CivicFix AI analyze it, then save it
+          with a tracking ID.
         </p>
 
-        {/* Upload */}
-        <label className="relative mt-8 flex h-72 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleSelect}
-            className="hidden"
-          />
+        {/* Media uploader: click or drag-and-drop (image or video) */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`mt-8 flex h-72 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-colors ${
+            dragging
+              ? "border-blue-400 bg-blue-950/40"
+              : "border-slate-700 bg-slate-900 hover:border-slate-500"
+          }`}
+        >
+          <label className="flex h-full w-full cursor-pointer items-center justify-center">
+            <input
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleSelect}
+              className="hidden"
+            />
 
-          {preview ? (
-            <>
-              <img
-                src={preview}
-                alt="preview"
-                className="h-full w-full rounded-2xl object-cover"
-              />
+            {preview ? (
+              <div className="relative h-full w-full">
+                {isVideo ? (
+                  <video
+                    src={preview}
+                    controls
+                    muted
+                    playsInline
+                    className="h-full w-full rounded-2xl bg-black object-contain"
+                  />
+                ) : (
+                  <img
+                    src={preview}
+                    alt="preview"
+                    className="h-full w-full rounded-2xl object-cover"
+                  />
+                )}
 
-              {/* Animated state while the AI agents analyze the photo. */}
-              {analyzing && (
-                <>
-                  {/* Dim the photo so the scanner reads clearly. */}
-                  <div className="absolute inset-0 rounded-2xl bg-slate-950/60" />
+                {/* Media type badge */}
+                <span className="absolute left-3 top-3 z-10 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                  {isVideo ? "🎥 Video" : "📷 Image"}
+                </span>
 
-                  {/* Scanner sweep travelling down the image. */}
-                  <div className="animate-civicfix-scan absolute inset-x-4 h-16 rounded-full bg-gradient-to-b from-transparent via-blue-400/60 to-transparent" />
+                {/* Animated state while the AI agents analyze the media. */}
+                {analyzing && (
+                  <>
+                    {/* Dim the preview so the scanner reads clearly. */}
+                    <div className="absolute inset-0 rounded-2xl bg-slate-950/60" />
 
-                  {/* Viewfinder corner brackets. */}
-                  <span className="pointer-events-none absolute left-3 top-3 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-blue-300/90" />
-                  <span className="pointer-events-none absolute right-3 top-3 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-blue-300/90" />
-                  <span className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-blue-300/90" />
-                  <span className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-blue-300/90" />
+                    {/* Scanner sweep travelling down the preview. */}
+                    <div className="animate-civicfix-scan absolute inset-x-4 h-16 rounded-full bg-gradient-to-b from-transparent via-blue-400/60 to-transparent" />
 
-                  {/* Live status chip: copy advances with the real pipeline. */}
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="relative size-16">
-                        <span className="absolute inset-0 rounded-full border-4 border-blue-400/20" />
-                        <span className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-blue-400" />
-                        <span className="absolute inset-0 grid place-items-center text-2xl">
-                          🤖
-                        </span>
-                      </div>
-                      <p className="mt-4 text-lg font-bold text-white drop-shadow">
-                        {STAGE_COPY[stage].label}
-                      </p>
-                      <p className="mt-1 font-mono text-3xl font-bold tabular-nums text-blue-300">
-                        {formatElapsed(elapsed)}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-300">
-                        {STAGE_COPY[stage].note}
-                      </p>
+                    {/* Viewfinder corner brackets. */}
+                    <span className="pointer-events-none absolute left-3 top-3 z-10 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-blue-300/90" />
+                    <span className="pointer-events-none absolute right-3 top-3 z-10 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-blue-300/90" />
+                    <span className="pointer-events-none absolute bottom-3 left-3 z-10 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-blue-300/90" />
+                    <span className="pointer-events-none absolute bottom-3 right-3 z-10 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-blue-300/90" />
 
-                      {/* Pipeline steps - light up as each agent finishes. */}
-                      <div className="mt-4 flex items-center gap-2">
-                        {PIPELINE_STEPS.map((step, i) => {
-                          const state = pillState(i, stage);
-                          const className =
-                            state === "done"
-                              ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
-                              : state === "active"
-                                ? "bg-blue-500/15 text-blue-200 ring-blue-400/60 animate-pulse"
-                                : "bg-slate-800/80 text-slate-500 ring-slate-700";
-                          const marker =
-                            state === "done" ? "✓" : state === "active" ? "●" : String(i + 1);
-                          return (
-                            <span
-                              key={step}
-                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${className}`}
-                            >
-                              {marker} {step}
-                            </span>
-                          );
-                        })}
+                    {/* Live status chip: copy advances with the real pipeline. */}
+                    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="relative size-16">
+                          <span className="absolute inset-0 rounded-full border-4 border-blue-400/20" />
+                          <span className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-blue-400" />
+                          <span className="absolute inset-0 grid place-items-center text-2xl">
+                            🤖
+                          </span>
+                        </div>
+                        <p className="mt-4 text-lg font-bold text-white drop-shadow">
+                          {STAGE_COPY[stage].label}
+                        </p>
+                        <p className="mt-1 font-mono text-3xl font-bold tabular-nums text-blue-300">
+                          {formatElapsed(elapsed)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-300">
+                          {STAGE_COPY[stage].note}
+                        </p>
+
+                        {/* Pipeline steps - light up as each agent finishes. */}
+                        <div className="mt-4 flex items-center gap-2">
+                          {PIPELINE_STEPS.map((step, i) => {
+                            const state = pillState(i, stage);
+                            const className =
+                              state === "done"
+                                ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
+                                : state === "active"
+                                  ? "bg-blue-500/15 text-blue-200 ring-blue-400/60 animate-pulse"
+                                  : "bg-slate-800/80 text-slate-500 ring-slate-700";
+                            const marker =
+                              state === "done" ? "✓" : state === "active" ? "●" : String(i + 1);
+                            return (
+                              <span
+                                key={step}
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${className}`}
+                              >
+                                {marker} {step}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <div className="text-center">
-              <p className="text-5xl">📷</p>
-              <p className="mt-3 text-slate-300">Click to upload</p>
-            </div>
-          )}
-        </label>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-5xl">📁</p>
+                <p className="mt-3 text-slate-300">
+                  {dragging ? "Drop it here!" : "Click or drag & drop"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Image (JPG, PNG, WEBP) or video (MP4, MOV, WEBM) · up to 30 MB
+                </p>
+              </div>
+            )}
+          </label>
+        </div>
+
+        {/* Selected filename */}
+        {fileName && !saved && (
+          <p className="mt-2 truncate text-center text-xs text-slate-400">
+            {isVideo ? "🎥" : "📷"} {fileName}
+          </p>
+        )}
 
         {/* Location status */}
         {locationNote && !saved && (
@@ -354,22 +461,23 @@ export default function ReportPage() {
         <button
           onClick={analyze}
           disabled={!file || analyzing || !!saved}
-          className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-500 disabled:bg-slate-700"
+          className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-500 disabled:bg-slate-700"
         >
           {analyzing ? (
-            <span className="inline-flex items-center justify-center gap-2">
-              <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              Analyzing…
-            </span>
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Analyzing... (1–3 min)
+            </>
           ) : (
-            "Analyze with AI"
+            "Analyze Media"
           )}
         </button>
 
         {analyzing && (
           <p className="mt-3 text-center text-xs text-slate-500">
-            Running the Vision → Location → Routing pipeline. Pick a different
-            photo to cancel.
+            {isVideo
+              ? "The AI samples a few frames from your video — this takes 1–3 minutes. You can pick different media to cancel."
+              : "The AI vision model takes 30–60 seconds on a real image. You can pick different media to cancel."}
           </p>
         )}
 
@@ -513,13 +621,22 @@ export default function ReportPage() {
               ) : null}
             </p>
 
-            {saved.image_url && (
-              <img
-                src={saved.image_url}
-                alt="Reported issue photo"
-                className="mt-5 max-h-72 w-full rounded-xl object-cover ring-1 ring-emerald-700/50"
-              />
-            )}
+            {saved.image_url &&
+              (/\.(mp4|webm|mov)(\?|$)/i.test(saved.image_url) ? (
+                <video
+                  src={saved.image_url}
+                  controls
+                  muted
+                  playsInline
+                  className="mt-5 max-h-72 w-full rounded-xl bg-black object-contain ring-1 ring-emerald-700/50"
+                />
+              ) : (
+                <img
+                  src={saved.image_url}
+                  alt="Reported issue photo"
+                  className="mt-5 max-h-72 w-full rounded-xl object-cover ring-1 ring-emerald-700/50"
+                />
+              ))}
 
             <button
               onClick={reset}

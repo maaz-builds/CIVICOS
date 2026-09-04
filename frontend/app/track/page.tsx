@@ -123,13 +123,22 @@ export default function TrackPage() {
               </div>
             )}
 
-            {result.image_url && (
-              <img
-                src={result.image_url}
-                alt={`Photo of the ${result.issue_type} reported`}
-                className="mt-5 max-h-96 w-full rounded-xl object-cover ring-1 ring-slate-700"
-              />
-            )}
+            {result.image_url &&
+              (/\\.(mp4|webm|mov)(\?|$)/i.test(result.image_url) ? (
+                <video
+                  src={result.image_url}
+                  controls
+                  muted
+                  playsInline
+                  className="mt-5 max-h-96 w-full rounded-xl bg-black object-contain ring-1 ring-slate-700"
+                />
+              ) : (
+                <img
+                  src={result.image_url}
+                  alt={`Photo of the ${result.issue_type} reported`}
+                  className="mt-5 max-h-96 w-full rounded-xl object-cover ring-1 ring-slate-700"
+                />
+              ))}
 
             <p className="mt-6 text-xs text-slate-500">
               Reported {new Date(result.created_at).toLocaleString()}

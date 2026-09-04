@@ -28,3 +28,8 @@ supabase>=2.0
 # Location agent - reverse geocoding via OpenStreetMap Nominatim
 # (backend/app/agents/location_agent.py)
 geopy>=2.4
+
+# Video upload - frame extraction for the vision agent's analyze_video
+# (backend/app/agents/vision_agent.py). Headless build = no GUI deps,
+# safe on servers/Vercel.
+opencv-python-headless>=4.9

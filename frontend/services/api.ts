@@ -126,13 +126,15 @@ async function errorMessage(response: Response): Promise<string> {
 }
 
 /**
- * Upload a photo and analyze it, streaming live pipeline-stage updates.
+ * Upload a photo OR video and analyze it, streaming live pipeline-stage
+ * updates.
  *
  * The backend answers with Server-Sent Events: a `stage` event fires as
  * each LangGraph agent starts (vision -> location -> routing) - delivered
  * through `opts.onStage` - then a `done` event resolves with the full
- * response. Falls back to plain JSON when a proxy buffers the stream, so
- * this also works behind buffering infrastructure.
+ * response. Videos are sampled into frames server-side; the response shape
+ * is identical for both media types. Falls back to plain JSON when a proxy
+ * buffers the stream, so this also works behind buffering infrastructure.
  */
 export async function analyzeComplaintImage(
   file: File,
