@@ -15,6 +15,7 @@ venv/
 
 # Local upload test artifacts (the API writes uploads to the OS temp dir now)
 uploads/
+backend/uploads/
 
 # ---------- Environment files ----------
 # Local env files are ignored; the .example files document what goes in them.
