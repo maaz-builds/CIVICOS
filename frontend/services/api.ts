@@ -79,7 +79,8 @@ async function errorMessage(response: Response): Promise<string> {
 
 /** Upload a photo and return the vision agent's analysis. */
 export async function analyzeComplaintImage(
-  file: File
+  file: File,
+  signal?: AbortSignal
 ): Promise<AnalysisResult> {
   const formData = new FormData();
   formData.append("file", file);
@@ -87,6 +88,7 @@ export async function analyzeComplaintImage(
   const response = await fetch(`${API_BASE_URL}/complaints/analyze`, {
     method: "POST",
     body: formData,
+    signal,
   });
   if (!response.ok) {
     throw new Error(await errorMessage(response));

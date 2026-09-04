@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   analyzeComplaintImage,
@@ -17,8 +17,10 @@ export default function ReportPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [saved, setSaved] = useState<StoredComplaint | null>(null);
   const [error, setError] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
 
   const handleSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    abortRef.current?.abort();
     const img = e.target.files?.[0];
     if (!img) return;
 
@@ -34,12 +36,23 @@ export default function ReportPage() {
 
     setAnalyzing(true);
     setError("");
+    // The 72B vision model takes 30-60 s on a real call; give it 2.5 min
+    // before failing, and let a new selection cancel the request.
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timer = setTimeout(() => controller.abort(), 150_000);
     try {
-      const analysis = await analyzeComplaintImage(file);
+      const analysis = await analyzeComplaintImage(file, controller.signal);
       setResult(analysis);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Analysis timed out after 2.5 minutes. Try a smaller image.");
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
+      clearTimeout(timer);
+      abortRef.current = null;
       setAnalyzing(false);
     }
   };
@@ -65,6 +78,7 @@ export default function ReportPage() {
   };
 
   const reset = () => {
+    abortRef.current?.abort();
     setFile(null);
     setPreview("");
     setResult(null);
@@ -115,8 +129,15 @@ export default function ReportPage() {
           disabled={!file || analyzing || !!saved}
           className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold disabled:bg-slate-700"
         >
-          {analyzing ? "Analyzing..." : "Analyze with AI"}
+          {analyzing ? "Analyzing... (30–60 s)" : "Analyze with AI"}
         </button>
+
+        {analyzing && (
+          <p className="mt-3 text-center text-xs text-slate-500">
+            The AI vision model takes 30–60 seconds on a real image. You can
+            pick a different photo to cancel.
+          </p>
+        )}
 
         {/* Error */}
         {error && (

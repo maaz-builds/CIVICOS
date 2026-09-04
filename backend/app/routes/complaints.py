@@ -24,6 +24,10 @@ from app.services.supabase_service import SupabaseService
 
 router = APIRouter(prefix="/complaints", tags=["Complaints"])
 
+# Reject huge uploads early: a giant image means a giant base64 payload and
+# far more vision tokens, which slows the model call dramatically.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
 vision = VisionAgent()
 tracking = TrackingAgent()
 db = SupabaseService()
@@ -32,6 +36,15 @@ db = SupabaseService()
 @router.post("/analyze")
 async def analyze_civic_issue(file: UploadFile = File(...)):
     """Upload a photo and get the vision agent's analysis of the issue."""
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB). "
+                "Resize it and try again."
+            ),
+        )
+
     # Derive a safe extension from the upload name (default to .jpg).
     suffix = os.path.splitext(file.filename or "")[1].lower()
     if not suffix.startswith("."):
@@ -44,7 +57,10 @@ async def analyze_civic_issue(file: UploadFile = File(...)):
             tmp_path = buffer.name
             shutil.copyfileobj(file.file, buffer)
 
-        analysis = await vision.analyze(tmp_path)
+        analysis = await vision.analyze(
+            tmp_path,
+            content_type=file.content_type or "image/jpeg",
+        )
     except Exception as exc:
         # AI providers fail for many reasons (missing key, quota, bad
         # model output) - surface a clean error instead of a traceback.

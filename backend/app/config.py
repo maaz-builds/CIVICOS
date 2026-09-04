@@ -42,5 +42,13 @@ class Settings:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
 
+    # Vision model served by Featherless. The default is a 72B model - slow
+    # but accurate. For faster demos, switch to a smaller model, e.g.:
+    #   VISION_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+    VISION_MODEL: str = os.getenv(
+        "VISION_MODEL",
+        "Qwen/Qwen2.5-VL-72B-Instruct",
+    )
+
 
 settings = Settings()
