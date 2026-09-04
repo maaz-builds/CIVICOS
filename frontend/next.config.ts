@@ -1,7 +1,11 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // No custom config needed for the scaffold - Next.js defaults are fine.
+  outputFileTracingRoot: path.join(__dirname),
+  turbopack: {
+    root: __dirname,
+  },
 };
 
 export default nextConfig;
