@@ -22,7 +22,7 @@ import tempfile
 
 import cv2
 
-from app.services.featherless_service import FeatherlessService
+from app.services.gemini_service import GeminiService
 
 # Number of frames sampled evenly across a video ("3-5 representative
 # frames"; 3 keeps the model calls fast enough for a hackathon demo).
@@ -60,7 +60,7 @@ def _extract_json(text: str) -> dict:
 
 class VisionAgent:
     def __init__(self):
-        self.ai = FeatherlessService()
+        self.ai = GeminiService()
 
     async def analyze(self, image_path: str, content_type: str = "image/jpeg"):
         """Analyze the uploaded media: image or video, picked from MIME.

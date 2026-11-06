@@ -25,15 +25,15 @@ uvicorn app.main:app --reload --port 8000
 
 ## Endpoints
 
-| Method | Path                | Description                                                          |
-| ------ | ------------------- | -------------------------------------------------------------------- |
-| GET    | /health             | Liveness check → `{"status": "ok", "service": "civicfix-backend"}`   |
-| POST   | /complaints/analyze | Upload a photo → JSON analysis of the civic issue (needs `FEATHERLESS_API_KEY`) |
-| POST   | /complaints         | Create a complaint (multipart form) → stored row incl. CF- tracking ID; pass `file` to upload the photo to Supabase Storage (linked via `image_url`) |
-| GET    | /complaints         | List recent complaints, newest first (Supabase)                      |
-| GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)   |
-| GET    | /complaints/nearby | Complaints within a radius of a GPS point, nearest first + optional category filters |
-| GET    | /docs               | Swagger UI for trying endpoints in the browser                       |
+| Method | Path                      | Description                                                                                                                                          |
+| ------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | /health                   | Liveness check → `{"status": "ok", "service": "civicfix-backend"}`                                                                                   |
+| POST   | /complaints/analyze       | Upload a photo → JSON analysis of the civic issue (needs `GEMINI_API_KEY`)                                                                           |
+| POST   | /complaints               | Create a complaint (multipart form) → stored row incl. CF- tracking ID; pass `file` to upload the photo to Supabase Storage (linked via `image_url`) |
+| GET    | /complaints               | List recent complaints, newest first (Supabase)                                                                                                      |
+| GET    | /complaints/{tracking_id} | Look up a complaint + status by its CF- tracking ID (Supabase)                                                                                       |
+| GET    | /complaints/nearby        | Complaints within a radius of a GPS point, nearest first + optional category filters                                                                 |
+| GET    | /docs                     | Swagger UI for trying endpoints in the browser                                                                                                       |
 
 ## Structure
 
@@ -52,7 +52,7 @@ backend/
 │   │   ├── complaint_agent.py#   assemble + validate a complaint record ✅
 │   │   └── tracking_agent.py #   collision-safe tracking IDs ✅
 │   ├── services/             # Integrations
-│   │   ├── featherless_service.py  # Featherless AI (OpenAI-compatible SDK)
+│   │   ├── gemini_service.py       # Google Gemini API client
 │   │   ├── supabase_service.py     # Supabase complaints (needs keys + table)
 │   │   └── storage_service.py      # photo upload → Supabase Storage → image_url
 │   ├── schemas/              # Request/response Pydantic models
@@ -77,19 +77,19 @@ Environment variables are read in `app/config.py`. A `.env` file in this
 folder is loaded automatically if present (see `.env.example`). Defaults are
 chosen so the app runs without any `.env` file:
 
-| Variable               | Default                                   | Purpose            |
-| ---------------------- | ----------------------------------------- | ------------------ |
-| CIVICFIX_CORS_ORIGINS  | http://localhost:3000,http://127.0.0.1:3000 | Allowed browser origins (CORS) |
-| CIVICFIX_SERVICE_NAME  | civicfix-backend                          | Name reported by /health |
-| FEATHERLESS_API_KEY    | (empty)                                   | Featherless key for AI analysis — empty until you add it |
-| VISION_MODEL           | Qwen/Qwen2.5-VL-72B-Instruct              | Vision model override (e.g. the 7B for faster demos) |
-| ROUTING_MODEL          | Qwen/Qwen2.5-7B-Instruct                  | Model used by the Routing Agent |
-| WARD_MODEL             | Qwen/Qwen2.5-7B-Instruct                  | Model used by the Location Agent; empty = parser-only fallback |
-| SUPABASE_URL           | (empty)                                   | Supabase project URL — required for database calls |
-| SUPABASE_ANON_KEY      | (empty)                                   | Supabase anon key — required for database calls |
-| SUPABASE_STORAGE_BUCKET | complaint-photos                          | Public Storage bucket for complaint photos (created by schema.sql) |
+| Variable                | Default                                     | Purpose                                                            |
+| ----------------------- | ------------------------------------------- | ------------------------------------------------------------------ |
+| CIVICFIX_CORS_ORIGINS   | http://localhost:3000,http://127.0.0.1:3000 | Allowed browser origins (CORS)                                     |
+| CIVICFIX_SERVICE_NAME   | civicfix-backend                            | Name reported by /health                                           |
+| GEMINI_API_KEY          | (empty)                                     | Google Gemini key for AI analysis                                  |
+| VISION_MODEL            | gemini-2.5-flash                            | Vision model override                                              |
+| ROUTING_MODEL           | gemini-2.5-flash                            | Model used by the Routing Agent                                    |
+| WARD_MODEL              | gemini-2.5-flash                            | Model used by the Location Agent; empty = parser-only fallback     |
+| SUPABASE_URL            | (empty)                                     | Supabase project URL — required for database calls                 |
+| SUPABASE_ANON_KEY       | (empty)                                     | Supabase anon key — required for database calls                    |
+| SUPABASE_STORAGE_BUCKET | complaint-photos                            | Public Storage bucket for complaint photos (created by schema.sql) |
 
-The app boots without `FEATHERLESS_API_KEY`; `POST /complaints/analyze`
+The app boots without `GEMINI_API_KEY`; `POST /complaints/analyze`
 answers **502** with a clear message until the key is set (locally in
 `backend/.env`, or as a Vercel environment variable in production).
 Similarly, database calls fail with a clear message until `SUPABASE_URL` +
@@ -106,7 +106,7 @@ With the server running:
 curl http://localhost:8000/health
 # {"status":"ok","service":"civicfix-backend"}
 
-# Upload a photo for vision analysis (requires FEATHERLESS_API_KEY):
+# Upload a photo for vision analysis (requires GEMINI_API_KEY):
 curl -X POST -F "file=@pothole.jpg" http://localhost:8000/complaints/analyze
 ```
 

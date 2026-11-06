@@ -32,10 +32,10 @@ class Settings:
         )
     )
 
-    # Featherless AI
-    FEATHERLESS_API_KEY: str = os.getenv(
-        "FEATHERLESS_API_KEY",
-        ""
+    # Gemini API key. Keep the legacy name as a fallback for existing local
+    # environments; deployments should use GEMINI_API_KEY.
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY") or os.getenv(
+        "FEATHERLESS_API_KEY", ""
     )
 
     # Supabase (project URL + anon key from Project Settings -> API)
@@ -50,32 +50,24 @@ class Settings:
         "complaint-photos",
     )
 
-    # Vision model served by Featherless. The default is a 72B model - slow
-    # but accurate. For faster demos, switch to a smaller model, e.g.:
-    #   VISION_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+    # Gemini models used for vision and text tasks.
     VISION_MODEL: str = os.getenv(
         "VISION_MODEL",
-        "Qwen/Qwen2.5-VL-72B-Instruct",
+        "gemini-2.5-flash",
     )
 
-    # Chat model used by the Location Agent to interpret the reverse-
-    # geocoded address into GHMC zone/ward/area/infrastructure (the
-    # PRIMARY path). Defaults to an ungated, fast Featherless instruct
-    # model; the built-in address parser is the fallback when the model is
-    # unset, busy, or gated. Set WARD_MODEL to an empty string to disable
-    # AI for this step entirely (parser-only mode).
+    # Chat model used by the Location Agent. Set WARD_MODEL to an empty
+    # string to disable AI for this step and use the parser only.
     WARD_MODEL: str = os.getenv(
         "WARD_MODEL",
-        "Qwen/Qwen2.5-7B-Instruct",
+        "gemini-2.5-flash",
     )
 
-    # Chat model used by the Routing Agent to map an issue category to the
-    # responsible GHMC department. The default is ungated and fast; set it
-    # to any ungated Featherless instruct model. Routing falls back to
-    # built-in keyword rules when the model is busy/gated/unset.
+    # Chat model used by the Routing Agent. Routing falls back to built-in
+    # keyword rules when the model is unavailable.
     ROUTING_MODEL: str = os.getenv(
         "ROUTING_MODEL",
-        "Qwen/Qwen2.5-7B-Instruct",
+        "gemini-2.5-flash",
     )
 
     # GHMC's official WhatsApp number for grievances (MyCUREApp accepts

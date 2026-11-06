@@ -16,14 +16,14 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 
 ## Tech stack
 
-| Layer     | Technology                                              | Status                                    |
-| --------- | ------------------------------------------------------- | ----------------------------------------- |
-| Frontend  | Next.js (App Router) + TypeScript + Tailwind CSS        | Working                                   |
-| Backend   | Python + FastAPI                                        | Working                                   |
-| Database  | Supabase (Postgres + Storage)                           | Live — keys in env, schema.sql applied    |
-| AI        | Featherless AI (OpenAI-compatible)                      | Vision, Location + Routing agents live    |
-| Workflows | LangGraph (agent orchestration)                         | Live — wired into `POST /complaints/analyze` |
-| API       | REST (frontend calls the FastAPI backend)               | `/health`, analyze, create, list, lookup, nearby |
+| Layer     | Technology                                       | Status                                           |
+| --------- | ------------------------------------------------ | ------------------------------------------------ |
+| Frontend  | Next.js (App Router) + TypeScript + Tailwind CSS | Working                                          |
+| Backend   | Python + FastAPI                                 | Working                                          |
+| Database  | Supabase (Postgres + Storage)                    | Live — keys in env, schema.sql applied           |
+| AI        | Google Gemini API                                | Vision, Location + Routing agents live           |
+| Workflows | LangGraph (agent orchestration)                  | Live — wired into `POST /complaints/analyze`     |
+| API       | REST (frontend calls the FastAPI backend)        | `/health`, analyze, create, list, lookup, nearby |
 
 ## Repository layout
 
@@ -43,7 +43,7 @@ lets residents track the fix. Built for a hackathon, designed to grow.
 │   │   ├── config.py          # Central settings (env-driven)
 │   │   ├── routes/            # API endpoints (health, complaints)
 │   │   ├── agents/            # AI agents — all five implemented
-│   │   ├── services/          # Integrations (Featherless + Supabase wired)
+│   │   ├── services/          # Integrations (Gemini + Supabase wired)
 │   │   ├── schemas/           # Request/response Pydantic models
 │   │   └── workflows/         # LangGraph pipeline (live, in /complaints/analyze)
 │   ├── api/                   # Vercel entrypoint (mounts app under /api/backend)
@@ -74,7 +74,7 @@ Verify: http://localhost:8000/health → `{"status":"ok","service":"civicfix-bac
 Interactive API docs: http://localhost:8000/docs
 
 Optional — enable AI analysis (`POST /complaints/analyze`): copy
-`backend/.env.example` to `backend/.env` and set `FEATHERLESS_API_KEY`. The
+`backend/.env.example` to `backend/.env` and set `GEMINI_API_KEY`. The
 health check and the rest of the API work fine without it.
 
 ### 2. Frontend (Next.js) — terminal 2
@@ -117,17 +117,17 @@ vercel.json
    (values go in as `NAME=value` without the key name prefix), then
    **Redeploy** so they take effect:
 
-   | Variable             | Source                                   |
-   | -------------------- | ---------------------------------------- |
-   | `FEATHERLESS_API_KEY` | https://featherless.ai (starts `rc_…`)  |
-   | `SUPABASE_URL`       | Supabase → Project Settings → API       |
-   | `SUPABASE_ANON_KEY`  | Supabase → Project Settings → API       |
-   | `VISION_MODEL`       | optional — default `Qwen/Qwen2.5-VL-72B-Instruct` (7B is faster) |
-   | `ROUTING_MODEL`      | optional — default `Qwen/Qwen2.5-7B-Instruct` |
-   | `WARD_MODEL`         | optional — default `Qwen/Qwen2.5-7B-Instruct` (Location Agent) |
+   | Variable            | Source                                                 |
+   | ------------------- | ------------------------------------------------------ |
+   | `GEMINI_API_KEY`    | Google AI Studio                                       |
+   | `SUPABASE_URL`      | Supabase → Project Settings → API                      |
+   | `SUPABASE_ANON_KEY` | Supabase → Project Settings → API                      |
+   | `VISION_MODEL`      | optional — default `gemini-2.5-flash`                  |
+   | `ROUTING_MODEL`     | optional — default `gemini-2.5-flash`                  |
+   | `WARD_MODEL`        | optional — default `gemini-2.5-flash` (Location Agent) |
 
    The health check works without any of them; AI analysis needs
-   `FEATHERLESS_API_KEY`, and complaint save/track/status needs the Supabase
+   `GEMINI_API_KEY`, and complaint save/track/status needs the Supabase
    pair plus `schema.sql` applied in the Supabase SQL editor.
 
 **How the paths line up**

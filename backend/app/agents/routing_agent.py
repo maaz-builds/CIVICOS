@@ -1,12 +1,12 @@
 """Routing agent - sends each complaint to the right GHMC department.
 
-Primary path uses a Featherless chat model (ROUTING_MODEL, default
-Qwen/Qwen2.5-7B-Instruct) to map the vision category + ward to a GHMC
+Primary path uses a Gemini chat model (ROUTING_MODEL) to map the vision
+category + ward to a GHMC
 department, a priority, and a short actionable note. Routing must never
 fail, so when no API key is set - or the model is busy, gated, or returns
 garbage - a deterministic keyword-rules table takes over.
 
-The Featherless call is synchronous, so it runs in a worker thread
+The Gemini call is synchronous, so it runs in a worker thread
 (asyncio.to_thread) - it must not block FastAPI's event loop.
 """
 
@@ -16,7 +16,7 @@ import re
 from typing import Any, Dict
 
 from app.config import settings
-from app.services.featherless_service import FeatherlessService
+from app.services.gemini_service import GeminiService
 
 # Deterministic fallback: keyword pattern -> (department, action note).
 # Used when the model is unavailable so routing always returns a useful
@@ -83,7 +83,7 @@ class RoutingAgent:
     """Department-routing agent: decides which civic body handles an issue."""
 
     def __init__(self):
-        self.ai = FeatherlessService()
+        self.ai = GeminiService()
 
     def _rule_route(self, category: str, description: str) -> tuple[str, str]:
         """Keyword fallback. Returns (department, note)."""
@@ -100,8 +100,8 @@ class RoutingAgent:
         severity: str | None,
         description: str,
     ) -> dict[str, Any] | None:
-        """Ask a Featherless model for the department mapping. None on failure."""
-        if not settings.FEATHERLESS_API_KEY:
+        """Ask Gemini for the department mapping. None on failure."""
+        if not settings.GEMINI_API_KEY:
             return None
 
         system_prompt = (
@@ -182,4 +182,4 @@ class RoutingAgent:
             "notes": note,
             "ai_used": ai_used,
             "error": error,
-        }
+        }

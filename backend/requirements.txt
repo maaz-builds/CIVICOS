@@ -10,9 +10,8 @@ python-dotenv>=1.0
 # Parses multipart form uploads (required by FastAPI for UploadFile/File(...))
 python-multipart>=0.0.9
 
-# AI runtime - Featherless is OpenAI-compatible, so we use the OpenAI SDK
-# (drives the vision agent + text chat via app/services/featherless_service.py)
-openai>=1.40
+# Gemini AI runtime (vision agent + text chat)
+google-genai>=1.0
 
 # Agent orchestration - the LangGraph complaint workflow
 # (backend/app/workflows/complaint_workflow.py)

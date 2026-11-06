@@ -7,7 +7,7 @@ embedded in the photo's EXIF metadata.
 Coordinates are reverse-geocoded to a street address via OpenStreetMap
 (geopy/Nominatim, no API key needed). An LLM cannot turn bare lat/lng
 into an address, so the geocoder always supplies the raw text. From that
-address, the Featherless chat model (WARD_MODEL, default Qwen 7B) is the
+address, the Gemini chat model (WARD_MODEL) is the
 PRIMARY interpreter: it resolves the GHMC zone, the precise ward (e.g.
 "Ward 104 Kondapur"), a short area name, and the infrastructure type.
 
@@ -30,7 +30,7 @@ from typing import Any, Dict
 from geopy.geocoders import Nominatim
 
 from app.config import settings
-from app.services.featherless_service import FeatherlessService
+from app.services.gemini_service import GeminiService
 from app.services.supabase_service import SupabaseService
 
 # Well-known GHMC zone / prominent-area names, matched against the address
@@ -242,7 +242,7 @@ class LocationAgent:
         # OpenStreetMap reverse geocoding (no API key needed) - always
         # supplies the raw address text the AI then interprets.
         self.geolocator = Nominatim(user_agent="Civicos_HackWave_ContextAgent")
-        self.ai = FeatherlessService()
+        self.ai = GeminiService()
 
     def _fetch_nearby_rows(self) -> list[dict[str, Any]]:
         """Sync Supabase read - runs inside a worker thread."""
@@ -257,7 +257,7 @@ class LocationAgent:
     async def _ai_map(
         self, exact_address: str, lat: float, lng: float
     ) -> tuple[dict[str, Any] | None, str | None]:
-        """Featherless (WARD_MODEL): interpret the address as GHMC context.
+        """Gemini (WARD_MODEL): interpret the address as GHMC context.
 
         Returns (parsed_data, error). ``None`` data means the model was
         unusable and the caller must fall back to the rules parser.
@@ -336,7 +336,7 @@ class LocationAgent:
         ward_r, area_r, zone_r = _ward_from_address(exact_address)
         infra = _infra_from_address(exact_address)
 
-        # 4. AI MAPPING (primary): Featherless interprets the address.
+        # 4. AI MAPPING (primary): Gemini interprets the address.
         ai_data: dict[str, Any] | None = None
         ai_error: str | None = None
         ai_used = False
